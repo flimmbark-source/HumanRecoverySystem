@@ -25,8 +25,7 @@ export const candidateV2Schema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('note'), ...common, noteType: z.enum(NOTE_KINDS), text: z.string().min(1).max(4000), targetId: idSchema.optional() }).strict(),
   z.object({ kind: z.literal('node'), ...common, nodeType: z.enum(NODE_KINDS), label: z.string().min(1).max(140) }).strict(),
   z.object({ kind: z.literal('relationship'), ...common, ...semantic, fromId: idSchema, toId: idSchema, connectionType: z.enum(EDGE_TYPES), label: z.string().min(1).max(140) }).strict(),
-  z.object({ kind: z.literal('activity'), ...common, ownerId: idSchema, label: z.string().min(1).max(140), minutes, measurementBasis: z.string().min(1).max(1000).optional() }).strict()
-    .refine((c) => c.minutes === null || !!c.measurementBasis, { message: 'a numeric duration needs measurementBasis', path: ['measurementBasis'] }),
+  z.object({ kind: z.literal('activity'), ...common, ownerId: idSchema, label: z.string().min(1).max(140), minutes, measurementBasis: z.string().min(1).max(1000).optional() }).strict(),
   // v2 additions. These never change the model; accepting them creates review material for the researcher.
   z.object({ kind: z.literal('contradiction'), ...common, text: z.string().min(1).max(4000), accounts: z.array(z.object({ sourceId: z.string().min(1).max(200), claim: z.string().min(1).max(1200) })).min(2).max(10), targetId: idSchema.optional(), noteIds: z.array(idSchema).max(10).optional() }).strict(),
   z.object({ kind: z.literal('measurement_target'), ...common, text: z.string().min(1).max(4000), metric: z.string().min(1).max(200), method: z.string().max(1000).optional(), targetId: idSchema.optional() }).strict(),
@@ -52,7 +51,9 @@ export function parseCandidateBundle(input: unknown): ParsedCandidates {
   if (o.version === 2) {
     const extra = Object.keys(o).filter((k) => !['format', 'version', 'candidates'].includes(k));
     if (extra.length) return fail([{ path: extra[0], message: 'unexpected property' }]);
-    const parsed = z.array(candidateV2Schema).max(100).safeParse(o.candidates);
+    const parsed = z.array(candidateV2Schema.superRefine((c, ctx) => {
+      if (c.kind === 'activity' && c.minutes !== null && !c.measurementBasis) ctx.addIssue({ code: 'custom', message: 'a numeric duration needs measurementBasis', path: ['measurementBasis'] });
+    })).max(100).safeParse(o.candidates);
     if (!parsed.success) return { version: 2, candidates: [], issues: parsed.error.issues.map((i) => ({ path: `candidates.${i.path.join('.')}`, message: i.message })) };
     return { version: 2, candidates: parsed.data, issues: [] };
   }
@@ -85,7 +86,7 @@ export function candidateFingerprint(c: Candidate): string {
     case 'activity': return `act|${c.ownerId}|${norm(c.label)}`;
     case 'contradiction': return `con|${c.targetId ?? ''}|${norm(c.text)}`;
     case 'measurement_target': return `mt|${c.targetId ?? ''}|${norm(c.metric)}`;
-    case 'assessment': return `as|${c.recommendation}|${norm(c.optionLabel ?? c.summary)}`;
+    default: return `as|${c.recommendation}|${norm(c.optionLabel ?? c.summary)}`;
   }
 }
 /** True when the model already contains what the candidate proposes. */

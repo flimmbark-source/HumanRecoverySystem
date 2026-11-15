@@ -127,7 +127,7 @@ export const candidateRecordSchema = z.object({
   status: z.enum(CANDIDATE_STATUSES).default('pending'),
   baseRevisionId: idSchema.nullable().default(null), duplicateOf: idSchema.nullable().default(null),
   reviewer: text(200), reviewedAt: text(40), reviewNote: text(2000),
-  applied: z.object({ kind: z.string(), id: z.string() }).nullable().default(null),
+  applied: z.record(z.string()).nullable().default(null),
 });
 export type CandidateRecord = z.infer<typeof candidateRecordSchema>;
 
