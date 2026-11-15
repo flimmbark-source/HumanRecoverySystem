@@ -43,10 +43,19 @@ api.post('/auth/signup', async (c) => {
   await startSession(c, user.id);
   return c.json({ user });
 });
+// Slows password guessing: after 8 failures for one email, sign-in for it pauses for 10 minutes. Per process, in memory.
+const failures = new Map<string, { n: number; until: number }>();
 api.post('/auth/login', async (c) => {
   const b = await body(c, credentials);
+  const key = b.email.toLowerCase(), now = Date.now(), f = failures.get(key);
+  if (f && f.n >= 8 && f.until > now) throw new HttpError(429, 'Too many failed sign-in attempts. Try again in a few minutes.');
   const row = await one<User & { password_hash: string }>(pool, 'SELECT id, email, name, password_hash FROM users WHERE lower(email) = lower($1)', [b.email]);
-  if (!row || !(await verifyPassword(b.password, row.password_hash))) throw new HttpError(401, 'Email or password is incorrect.');
+  if (!row || !(await verifyPassword(b.password, row.password_hash))) {
+    failures.set(key, { n: (f && f.until > now ? f.n : 0) + 1, until: now + 600_000 });
+    if (failures.size > 5000) for (const [k, v] of failures) if (v.until < now) failures.delete(k);
+    throw new HttpError(401, 'Email or password is incorrect.');
+  }
+  failures.delete(key);
   await startSession(c, row.id);
   return c.json({ user: { id: row.id, email: row.email, name: row.name } });
 });

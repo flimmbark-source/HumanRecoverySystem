@@ -19,7 +19,13 @@ beforeAll(async () => {
 });
 
 describe('start, persistence and conflicts', () => {
-  it('requires sign-in', async () => { expect((await new Client().get('/projects')).status).toBe(401); });
+  it('requires sign-in and slows password guessing', async () => {
+    expect((await new Client().get('/projects')).status).toBe(401);
+    const c = new Client();
+    const tries = [];
+    for (let i = 0; i < 9; i++) tries.push((await c.post('/auth/login', { email: 'nobody@weave.test', password: 'wrong-password' })).status);
+    expect(tries).toEqual([401, 401, 401, 401, 401, 401, 401, 401, 429]);
+  });
 
   it('creates an empty project next to the synthetic one and keeps them independent', async () => {
     const id = ok(await owner.post('/projects', { name: 'Blank intake study', startLabel: 'Front desk', outcomeLabel: 'Request resolved', template: 'blank' })).id;

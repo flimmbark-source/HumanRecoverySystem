@@ -1,7 +1,7 @@
 // Fieldwork board (notes) and the freeform insight editor.
 import { useMemo, useState } from 'react';
-import { canEdit, createDoc, createScenario, deleteDocById, fail, openModal, setNav, toast, updateDoc, useStore, type V } from './store';
-import { NoteCard, QuickCapture, jumpTo } from './Capture';
+import { canEdit, createDoc, createScenario, deleteDocById, fail, goToTarget, openModal, setNav, toast, updateDoc, useStore, type V } from './store';
+import { NoteCard, QuickCapture, jumpTo, targetOptions } from './Capture';
 import { Empty, Field, when } from './ui';
 import { anchorState, targetLabel } from '../shared/diff';
 import { EVIDENCE_LEVEL_LABEL, evidenceFor, insightTitle, notesForInsight } from '../shared/evidence';
@@ -75,6 +75,10 @@ function InsightCard({ insight }: { insight: V<Insight> }) {
           ))}
         </ul>
         {ev.gaps.length > 0 && linked.length > 0 && <p className="micro warn">{ev.gaps.join(' ')}</p>}
+        <div className="btnrow" data-testid="insight-model-links">
+          {insight.modelLinks.map((id) => <span key={id} className="chip"><button className="linkbtn" onClick={() => goToTarget(id)}>↗ {targetOptions().find((o) => o.id === id)?.label ?? `${id} (not on this map)`}</button>{!ro && <button className="linkbtn danger" aria-label="Remove map link" onClick={() => updateDoc('insights', insight.id, { modelLinks: insight.modelLinks.filter((x) => x !== id) }).catch(fail)}>✕</button>}</span>)}
+          {!ro && <select value="" aria-label="Link this insight to a map item" style={{ width: 'auto' }} onChange={(e) => e.target.value && updateDoc('insights', insight.id, { modelLinks: [...insight.modelLinks, e.target.value] }).catch(fail)}><option value="">Link to a map item…</option>{targetOptions().filter((o) => !insight.modelLinks.includes(o.id)).map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}</select>}
+        </div>
         {!ro && <div className="btnrow">
           <button onClick={() => openModal('link', { fromType: 'insight', fromId: insight.id })} data-testid="insight-attach">Attach evidence</button>
           <button onClick={toOpportunity} data-testid="insight-to-opportunity">Create opportunity</button>
@@ -102,7 +106,7 @@ export function Insights() {
         </div>
       )}
       {!insights.length && <Empty title="No insights yet">Write one above. Evidence can be attached later, revised, or detached without changing the notes.</Empty>}
-      <div className="insights">{[...insights].reverse().map((i) => <InsightCard key={i.id + i.version} insight={i} />)}</div>
+      <div className="insights">{[...insights].reverse().map((i) => <InsightCard key={i.id} insight={i} />)}</div>
     </div>
   );
 }
