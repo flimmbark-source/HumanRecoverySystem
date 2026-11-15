@@ -23,6 +23,7 @@ export function Report() {
         <a className="btn" href={href('workspace.json')} download data-testid="export-json">Workspace backup (JSON)</a>
         <button onClick={() => window.print()}>Print this preview</button>
       </div>
+      <p className="micro">The workspace backup includes private project data. Use the brief, map or opportunity sheet to share findings.</p>
       <article className="brief" data-testid="brief-preview">
         {b.synthetic && <p className="alert warn">Synthetic demonstration data. Names, sources, figures and relationships are invented.</p>}
         <h2>{b.projectName}</h2>
@@ -41,18 +42,18 @@ export function Report() {
         {!b.recommendations.length && <Empty title="Nothing to recommend yet">Add an opportunity in Decide.</Empty>}
         {b.recommendations.map((r: any, i: number) => (
           <section key={r.id} className="brief-rec" data-rec={r.id}>
-            <small className={r.isHypothesis ? 'warn' : ''} data-testid="rec-heading">{i + 1}. {r.heading} · {r.evidenceLevel}</small>
+            <small className={r.isHypothesis || r.option?.withinPilotScope === false ? 'warn' : ''} data-testid="rec-heading">{i + 1}. {r.heading} · {r.evidenceLevel}</small>
             <h4>{r.title}</h4>
             {r.stale && <p className="alert warn">The scenario behind this item changed after it was selected.</p>}
             <div className="triad">
               <section><h5>What was observed</h5><ul data-testid="rec-observations">{r.observations.map((o: any, k: number) => <li key={k} data-relation={o.relation}><b>{o.relation === 'supports' ? 'Supports' : o.relation === 'contradicts' ? 'Contradicts' : 'Related'}</b> · {o.kind}, {o.certainty} · {o.source}{o.text ? <> — “{o.text}”</> : <em> — excerpt not approved for export</em>}</li>)}{!r.observations.length && <li className="micro">No observations linked.</li>}</ul></section>
-              <section><h5>Interpretation</h5>{r.insights.map((x: any) => <p key={x.title}><b>{x.title}</b>{x.body && x.body !== x.title ? `: ${x.body}` : ''}</p>)}<p>{r.interpretation}</p></section>
+              <section><h5>Interpretation</h5><p>{r.interpretation || 'No interpretation prepared for this brief.'}</p></section>
               <section><h5>Evidence gaps</h5><ul data-testid="rec-gaps">{r.gaps.map((g: string) => <li key={g}>{g}</li>)}{!r.gaps.length && <li className="micro">None recorded.</li>}</ul></section>
             </div>
             {r.preserve && <p><b>Protect.</b> {r.preserve}</p>}{r.stakeholders && <p><b>Whose day changes.</b> {r.stakeholders}</p>}
-            {r.option && <div className="brief-option"><b>{r.option.smallestReversible ? 'Smallest reversible change' : 'Proposed option'}: {r.option.title}</b> <em>({r.option.kindLabel}, confidence {r.option.confidence})</em>
+            {r.option && <div className="brief-option"><b>{r.option.smallestReversible ? 'Smallest reversible change' : 'Proposed option'}: {r.option.title}</b> <em>({r.option.kindLabel}, confidence {r.option.confidence}{r.option.withinPilotScope ? '' : ', outside pilot scope'})</em>
               <ul>{[['Benefits', r.option.benefits], ['Downsides and human costs', r.option.downsides], ['Added or shifted work', r.option.shiftedWork], ['Effort', r.option.effort], ['Costs', r.option.costs], ['Tradeoffs', r.option.tradeoffs], ['Unknowns', r.option.unknowns], ['What to test', r.option.test]].filter(([, v]) => v).map(([k, v]) => <li key={k}><b>{k}:</b> {v}</li>)}</ul></div>}
-            {r.alternatives.length > 0 && <p className="micro"><b>Also compared:</b> {r.alternatives.map((a: any) => `${a.title} (${a.kindLabel})`).join('; ')}</p>}
+            {r.alternatives.length > 0 && <p className="micro"><b>Also compared:</b> {r.alternatives.map((a: any) => `${a.title} (${a.kindLabel}${a.withinPilotScope ? '' : ', outside pilot scope'})`).join('; ')}</p>}
             {r.comparison && (<div className="brief-comparison" data-testid="rec-comparison">
               <h5>Modeled comparison: {r.comparison.scenarioName} <em>vs {r.comparison.pinnedTo}</em></h5>
               <table className="impact"><thead><tr><th>Measure</th><th>Baseline</th><th>Proposed</th><th>Change</th></tr></thead><tbody>{r.comparison.lines.map((l: any) => <tr key={l.label}><th>{l.label}<small>{l.note}</small></th><td>{l.baseline}</td><td>{l.proposed}</td><td>{l.change}</td></tr>)}</tbody></table>

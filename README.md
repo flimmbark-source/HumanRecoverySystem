@@ -128,7 +128,7 @@ The v1 candidate contract is the bundled `schema.json`, validated verbatim. Vers
 - **Evidence is never rewritten by a scenario.** Notes belong to the project and keep their anchor. Where a scenario removes the target, the note is shown as historical there and still attached on the baseline.
 - **Missing is not zero.** An empty duration is unknown. Headline figures appear only when every included input is known; otherwise the result reads incomplete, with a known-only subtotal shown separately.
 - **Effort, elapsed time, cash and human effects stay separate.** Released time is capacity. Cash is counted only from an item with a documented mechanism, in one currency.
-- **Exports are anonymized in one place** (`src/server/reports/brief.ts`): approved excerpts and approved source IDs only, no participant roles, no internal notes.
+- **Leadership exports** use the title and interpretation prepared in Decide, plus approved excerpts and anonymous source IDs. Insight drafts and workspace opportunity titles remain in the workspace and its full JSON backup.
 - **Projects are private.** Every query is scoped by project membership; an unknown or inaccessible project ID is a 404. Readers cannot mutate anything.
 
 ## Measuring research effort

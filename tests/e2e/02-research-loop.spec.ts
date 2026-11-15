@@ -182,10 +182,11 @@ test.describe('Open-ended synthesis and decision', () => {
     await expect(page.getByTestId('hypothesis-banner')).toContainText('hypothesis to test');
     await expect(page.getByTestId('col-observations')).toContainText('checking for available placements manually');
     await expect(page.getByTestId('col-interpretation')).toContainText('protected matching conversation');
-    await expect(page.getByTestId('col-gaps')).toContainText('single source');
+    await expect(page.getByTestId('col-gaps')).toContainText('no recorded certainty');
     await page.getByTestId('nav-report').click();
     await expect(page.getByTestId('rec-heading').first()).toContainText('Hypothesis to test');
-    await expect(page.getByTestId('rec-gaps').first()).toContainText('single source');
+    await expect(page.getByTestId('rec-gaps').first()).toContainText('no recorded certainty');
+    await expect(page.getByTestId('brief-preview')).not.toContainText('The protected matching conversation is where placement quality comes from.');
   });
 
   test('compare status quo, process change, existing tool and bespoke option, then export every deliverable', async ({ page }) => {
@@ -202,6 +203,10 @@ test.describe('Open-ended synthesis and decision', () => {
     await expect(page.getByTestId('graph')).toBeVisible();
     await page.getByTestId('nav-insights').click();
     await page.getByTestId('insight').first().getByTestId('insight-to-opportunity').click();
+    await page.getByTestId('opp-report-title').fill('Protect matching conversations');
+    await page.getByTestId('opp-report-title').blur();
+    await page.getByTestId('opp-interpretation').fill('Capacity checks interrupt the matching conversation.');
+    await page.getByTestId('opp-interpretation').blur();
     for (const k of ['status_quo', 'process_change', 'existing_tool', 'bespoke_tool']) await page.locator(`[data-add-option="${k}"]`).click();
     await expect(page.locator('[data-option]')).toHaveCount(4);
     const pc = page.locator('[data-option][data-kind="process_change"]');
@@ -210,6 +215,12 @@ test.describe('Open-ended synthesis and decision', () => {
     await fill('shiftedWork', 'About ten minutes a week moves to program leads'); await fill('effort', 'One afternoon to set up'); await fill('unknowns', 'Whether leads keep the board current'); await fill('test', 'Four-week trial with two programs');
     await pc.getByTestId('opt-smallest').check();
     await pc.getByTestId('opt-recommend').click();
+    const pilotScope = pc.getByRole('checkbox', { name: 'Within the pilot’s recommendation scope' });
+    await pilotScope.uncheck();
+    await expect(page.getByTestId('opp-heading')).toHaveText('Exploratory option outside pilot scope');
+    await expect(page.getByTestId('register')).toContainText('Exploratory option outside pilot scope');
+    await pilotScope.check();
+    await expect(page.getByTestId('opp-heading')).toHaveText('Hypothesis to test');
     await page.getByTestId('opp-preserve').fill('The personal matching conversation.'); await page.getByTestId('opp-preserve').blur();
     await page.getByTestId('opp-internal').fill('INTERNAL-ONLY: talk to R. first'); await page.getByTestId('opp-internal').blur();
     await page.locator('[data-criterion="evidenceStrength"]').selectOption('2'); await page.locator('[data-criterion="humanRisk"]').selectOption('1');
@@ -234,6 +245,8 @@ test.describe('Open-ended synthesis and decision', () => {
     await expect(page.getByTestId('brief-provenance')).toContainText('Process walk 02');
     const text = await preview.innerText();
     expect(text).not.toContain('UNAPPROVED'); expect(text).not.toContain('INTERNAL-ONLY'); expect(text).not.toContain('only one in the team');
+    expect(text).toContain('Capacity checks interrupt the matching conversation.');
+    expect(text).not.toContain('Each check is a context switch.');
     await expect(page.getByTestId('brief-percase')).toContainText('63'); await expect(preview).toContainText('unverified');
 
     // each deliverable downloads and opens as its real format
@@ -243,7 +256,8 @@ test.describe('Open-ended synthesis and decision', () => {
     const xlsx = await grab('export-xlsx'); expect(xlsx.buf.subarray(0, 2).toString()).toBe('PK');
     const ExcelJS = (await import('exceljs')).default; const wb = new ExcelJS.Workbook(); await wb.xlsx.load(xlsx.buf as any);
     const sheet = wb.getWorksheet('Opportunities')!; const row = sheet.getRow(3).values as string[];
-    expect(row.join('|')).toContain('Capacity checks interrupt matching'); expect(row.join('|')).toContain('Program leads must update a shared board weekly');
+    expect(row.join('|')).toContain('Protect matching conversations'); expect(row.join('|')).toContain('Program leads must update a shared board weekly');
+    expect(row.join('|')).not.toContain('Capacity checks interrupt matching');
     expect(wb.worksheets.map((w) => w.name)).toEqual(['Opportunities', 'Options compared', 'Provenance']);
     const csv = (await grab('export-csv')).buf.toString(); expect(csv.split('\r\n')[1]).toContain('Hypothesis to test'); expect(csv).not.toContain('INTERNAL-ONLY');
     const json = JSON.parse((await grab('export-json')).buf.toString()); expect(json.format).toBe('weave-workspace'); expect(json.opportunities).toHaveLength(1);

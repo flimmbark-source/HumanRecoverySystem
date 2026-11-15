@@ -91,18 +91,17 @@ export function briefPdf(input: Brief): Promise<Buffer> {
   if (!b.recommendations.length) para('No opportunities have been recorded yet.', MUTED);
   b.recommendations.forEach((r, i) => {
     room(90);
-    doc.moveDown(0.6).font(F.b).fontSize(8).fillColor(r.isHypothesis ? AMBER : GREEN).text(`${i + 1}. ${r.heading.toUpperCase()} · ${r.evidenceLevel.toUpperCase()}`, { characterSpacing: 0.6 });
+    doc.moveDown(0.6).font(F.b).fontSize(8).fillColor(r.isHypothesis || r.option?.withinPilotScope === false ? AMBER : GREEN).text(`${i + 1}. ${r.heading.toUpperCase()} · ${r.evidenceLevel.toUpperCase()}`, { characterSpacing: 0.6 });
     doc.moveDown(0.15).font(F.b).fontSize(13).fillColor(INK).text(r.title, { width: W }); doc.moveDown(0.3);
     if (r.stale) para('The scenario behind this item has changed since it was written. Figures below reflect the current scenario and the text may need review.', AMBER);
-    if (r.isHypothesis && r.option) para('Evidence is incomplete, so this is presented as a hypothesis to test, not a finding.', AMBER);
+    if (r.isHypothesis) para('This is a hypothesis to test.', AMBER);
     if (r.closeReason) field('Why this was closed', r.closeReason);
     label('What was observed');
     if (!r.observations.length) para('No observations are linked to this item yet.', MUTED);
     for (const o of r.observations) bullet(`${o.relation === 'supports' ? 'Supports' : o.relation === 'contradicts' ? 'Contradicts' : 'Related'} · ${o.kind}, ${o.certainty} · ${o.source}${o.text ? ` — “${o.text}”` : ' — excerpt not approved for export'}`, o.relation === 'contradicts' ? AMBER : INK);
     doc.moveDown(0.3);
     label('Interpretation');
-    for (const ins of r.insights) para(`${ins.title}${ins.body && ins.body.trim() !== ins.title ? `: ${ins.body}` : ''}`);
-    para(r.interpretation || (r.insights.length ? '' : 'No interpretation recorded.'), r.interpretation ? INK : MUTED);
+    para(r.interpretation || 'No interpretation prepared for this brief.', r.interpretation ? INK : MUTED);
     label('Evidence gaps and uncertainty');
     if (r.gaps.length) r.gaps.forEach((g) => bullet(g, AMBER)); else para('None recorded.', MUTED);
     doc.moveDown(0.3);
@@ -113,7 +112,7 @@ export function briefPdf(input: Brief): Promise<Buffer> {
       field('Benefits', r.option.benefits); field('Downsides and human costs', r.option.downsides); field('Added or shifted work', r.option.shiftedWork);
       field('Implementation effort', r.option.effort); field('Costs', r.option.costs); field('Tradeoffs', r.option.tradeoffs); field('Unknowns', r.option.unknowns); field('What to test', r.option.test);
     }
-    if (r.alternatives.length) { label('Other options compared'); table(['Option', 'Benefits', 'Downsides', 'Confidence'], r.alternatives.map((a) => [`${a.title} (${a.kindLabel})`, a.benefits, a.downsides, a.confidence]), [0.26, 0.3, 0.28, 0.16]); }
+    if (r.alternatives.length) { label('Other options compared'); table(['Option', 'Benefits', 'Downsides', 'Confidence'], r.alternatives.map((a) => [`${a.title} (${a.kindLabel})${a.withinPilotScope ? '' : ' · Exploratory option outside pilot scope'}`, a.benefits, a.downsides, a.confidence]), [0.26, 0.3, 0.28, 0.16]); }
     const c = r.comparison;
     if (c) {
       h2(`Modeled comparison: ${c.scenarioName}`);

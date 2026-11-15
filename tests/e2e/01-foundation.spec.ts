@@ -77,6 +77,7 @@ test.describe('Start and persistence', () => {
     // and the alternative path: use theirs
     await page.reload();
     await selectEdge(page, 'e1'); await openEdit(page);
+    await other.getByTestId('clear-selection').click();
     await selectEdge(other, 'e2'); await openEdit(other); await other.getByTestId('edit-label').fill('Triage'); await saved(other);
     await page.getByTestId('edit-label').fill('Mine, to be dropped');
     await expect(page.getByTestId('conflict-banner')).toBeVisible();

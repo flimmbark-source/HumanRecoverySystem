@@ -1,5 +1,5 @@
 // How evidence relates to an insight or recommendation. Observations, interpretation and gaps stay separate.
-import type { EvidenceLink, Insight, Note, Opportunity } from './workspace';
+import type { DecisionOption, EvidenceLink, Insight, Note, Opportunity } from './workspace';
 
 export interface LinkedNote { note: Note; relation: EvidenceLink['relation']; linkId: string; via: string }
 
@@ -30,22 +30,34 @@ export function evidenceFor(insightIds: string[], directNoteIds: string[], notes
   for (const id of directNoteIds) { const note = notes.find((n) => n.id === id); if (note && !linked.some((l) => l.note.id === id)) linked.push({ note, relation: 'supports', linkId: '', via: 'direct' }); }
   const supporting = linked.filter((l) => l.relation === 'supports'), contradicting = linked.filter((l) => l.relation === 'contradicts');
   const other = linked.filter((l) => l.relation !== 'supports' && l.relation !== 'contradicts');
-  const observed = supporting.filter((l) => l.note.kind === 'observation' || l.note.kind === 'measurement');
-  const sources = new Set(observed.map((l) => l.note.sourceId).filter(Boolean));
+  const accounts = supporting.filter(({ note }) => note.kind === 'observation' || note.kind === 'measurement');
+  const evidence = accounts.filter(({ note }) => note.certainty === 'observed' || note.certainty === 'reported');
+  const sources = new Set(accounts.map(({ note }) => note.sourceId).filter(Boolean));
+  const evidenceSources = new Set(evidence.map(({ note }) => note.sourceId).filter(Boolean));
   const gaps: string[] = [];
-  if (!supporting.length) gaps.push('No supporting observation is linked yet.');
-  else if (!observed.length) gaps.push('Support comes only from hypotheses or questions, not from observations or measurements.');
-  else if (sources.size < 2) gaps.push(sources.size === 0 ? 'Supporting observations have no recorded source.' : 'All supporting observations come from a single source.');
+  if (!accounts.length) gaps.push('No supporting observation or measurement is linked yet.');
+  else if (!evidence.length) gaps.push('Supporting accounts are inferred or have no recorded certainty. Look for an observed or reported account to test the interpretation.');
+  else if (!evidenceSources.size) gaps.push('Observed or reported accounts have no recorded source.');
+  else if (evidenceSources.size === 1) gaps.push('Observed or reported support comes from a single source.');
   if (contradicting.length) gaps.push(`${contradicting.length} contradicting observation${contradicting.length === 1 ? '' : 's'} not yet reconciled.`);
-  if (observed.length && observed.every((l) => l.note.certainty !== 'observed')) gaps.push('Nothing here was directly observed; accounts are reported or inferred.');
-  const level: EvidenceStatus['level'] = !observed.length ? 'none' : contradicting.length ? 'contested' : sources.size < 2 ? 'thin' : 'supported';
+  if (evidence.length && evidence.every(({ note }) => note.certainty !== 'observed')) gaps.push('The supporting evidence comes from reported accounts.');
+  const level: EvidenceStatus['level'] = !linked.length ? 'none' : contradicting.length ? 'contested' : evidenceSources.size < 2 ? 'thin' : 'supported';
   return { supporting, contradicting, other, sourceCount: sources.size, level, isHypothesis: level !== 'supported', gaps };
 }
 
 export const evidenceForOpportunity = (o: Opportunity, notes: Note[], links: EvidenceLink[]) => evidenceFor(o.insightIds, o.noteIds, notes, links);
 
+export function decisionHeading(o: Opportunity, chosen: DecisionOption | undefined, evidence: EvidenceStatus) {
+  if (o.decisionState === 'closed') return 'Closed';
+  if (o.decisionState === 'deferred') return 'Deferred';
+  if (!chosen) return 'Opportunity under exploration';
+  if (!chosen.withinPilotScope) return 'Exploratory option outside pilot scope';
+  if (o.decisionState === 'hypothesis' || evidence.isHypothesis) return 'Hypothesis to test';
+  return o.decisionState === 'recommended' ? 'Recommendation' : 'Option under review';
+}
+
 export const EVIDENCE_LEVEL_LABEL: Record<EvidenceStatus['level'], string> = {
-  none: 'No evidence linked', thin: 'Thin evidence', contested: 'Contested evidence', supported: 'Supported by more than one source',
+  none: 'No evidence linked', thin: 'Thin evidence', contested: 'Contested evidence', supported: 'Multiple supporting sources',
 };
 
 export function insightTitle(i: Insight): string {

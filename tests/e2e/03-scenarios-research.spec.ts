@@ -174,6 +174,7 @@ test.describe('Scenario and evidence isolation, with the calculation fixtures', 
     await page.getByTestId('nav-decide').click();
     await page.getByTestId('opp-new').fill('Faster matching'); await page.getByTestId('opp-add').click();
     await page.locator('[data-add-option="process_change"]').click();
+    await expect(page.locator('[data-option][data-kind="process_change"]')).toBeVisible();
     const opt = (await api(page, `/projects/${id}/evidence`)).options[0];
     await page.request.patch(`/api/projects/${id}/c/options/${opt.id}`, { data: { scenarioBranchId: aHead.id } });
     await page.reload(); await page.getByTestId('nav-decide').click();

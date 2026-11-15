@@ -78,6 +78,7 @@ export type EvidenceLink = z.infer<typeof linkSchema>;
 const score = z.number().int().min(1).max(5).nullable().default(null);
 export const opportunitySchema = z.object({
   id: idSchema, title: z.string().min(1).max(300),
+  reportTitle: z.string().max(300).optional(),
   insightIds: z.array(idSchema).max(50).default([]),
   noteIds: z.array(idSchema).max(200).default([]),
   targetIds: z.array(idSchema).max(50).default([]),

@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { canEdit, createDoc, createScenario, deleteDocById, fail, loadBranch, setNav, setState, toast, updateDoc, useStore, type V } from './store';
 import { jumpTo } from './Capture';
 import { Empty, Field } from './ui';
-import { EVIDENCE_LEVEL_LABEL, evidenceForOpportunity, insightTitle } from '../shared/evidence';
+import { decisionHeading, EVIDENCE_LEVEL_LABEL, evidenceForOpportunity, insightTitle } from '../shared/evidence';
 import { DECISION_STATES, OPTION_KINDS, OPTION_KIND_LABEL, RELATION_LABEL, type DecisionOption, type Opportunity } from '../shared/workspace';
 
 const CRITERIA: [keyof Opportunity['criteria'], string, string][] = [['evidenceStrength', 'Evidence strength', '5 = strong'], ['expectedValue', 'Expected value', '5 = high'], ['effort', 'Effort', '5 = heavy'], ['humanRisk', 'Human risk', '5 = high']];
@@ -48,7 +48,8 @@ function OpportunityDetail({ o }: { o: V<Opportunity> }) {
   const chosen = options.find((x) => x.id === o.recommendedOptionId);
   const ro = !canEdit();
   const save = (patch: Record<string, unknown>) => updateDoc('opportunities', o.id, patch).catch(fail);
-  const isHyp = ev.isHypothesis || o.decisionState === 'hypothesis';
+  const heading = decisionHeading(o, chosen, ev);
+  const isHyp = heading === 'Hypothesis to test';
   const sc = chosen?.scenarioBranchId ? branches.find((b) => b.id === chosen.scenarioBranchId) : null;
   const stale = !!sc && !!o.citedRevisions[sc.id] && o.citedRevisions[sc.id] !== sc.headRevisionId;
   const src = (id: string | null) => ev0.sources.find((s) => s.id === id)?.anonId ?? 'no source';
@@ -59,10 +60,10 @@ function OpportunityDetail({ o }: { o: V<Opportunity> }) {
     <article className="opportunity" data-opportunity={o.id} data-testid="opportunity">
       <header>
         <input className="opp-title" value={title} disabled={ro} aria-label="Opportunity title" onChange={(e) => setTitle(e.target.value)} onBlur={() => title !== o.title && save({ title: title || 'Opportunity' })} />
-        <span className={`chip ${isHyp ? 'warnchip' : 'ok'}`} data-testid="opp-heading">{o.decisionState === 'closed' ? 'Closed' : !chosen ? 'Under exploration' : isHyp ? 'Hypothesis to test' : 'Recommendation'}</span>
+        <span className={`chip ${isHyp || chosen?.withinPilotScope === false ? 'warnchip' : 'ok'}`} data-testid="opp-heading">{heading}</span>
         <span className={`chip ev-${ev.level}`} data-testid="opp-evidence">{EVIDENCE_LEVEL_LABEL[ev.level]}</span>
       </header>
-      {isHyp && chosen && <p className="alert warn" data-testid="hypothesis-banner">Evidence is incomplete, so this is presented as a hypothesis to test. {ev.gaps[0]}</p>}
+      {isHyp && <p className="alert warn" data-testid="hypothesis-banner">This is a hypothesis to test. {ev.gaps[0]}</p>}
       {stale && <p className="alert warn" data-testid="stale-banner">The scenario behind this recommendation changed after it was selected. Review the figures, then <button className="linkbtn" onClick={() => save({ citedRevisions: { ...o.citedRevisions, [sc!.id]: sc!.headRevisionId } })}>mark as reviewed</button>.</p>}
 
       <div className="triad">
@@ -72,10 +73,12 @@ function OpportunityDetail({ o }: { o: V<Opportunity> }) {
         <section data-testid="col-interpretation"><h4>Interpretation</h4><p className="micro">What the researcher makes of it.</p>
           <ul className="evlist">{o.insightIds.map((id) => { const i = ev0.insights.find((x) => x.id === id); return i && <li key={id}><button className="linkbtn" onClick={() => jumpTo('insight', id)}>{insightTitle(i)}</button>{!ro && <button className="linkbtn danger" onClick={() => save({ insightIds: o.insightIds.filter((x) => x !== id) })}>remove</button>}</li>; })}</ul>
           {!ro && <select value="" aria-label="Cite an insight" data-testid="opp-add-insight" onChange={(e) => e.target.value && save({ insightIds: [...o.insightIds, e.target.value] })}><option value="">Cite an insight…</option>{ev0.insights.filter((i) => !o.insightIds.includes(i.id)).map((i) => <option key={i.id} value={i.id}>{insightTitle(i)}</option>)}</select>}
-          <Text label="Interpretation for this decision" value={o.interpretation} testid="opp-interpretation" onSave={(v) => save({ interpretation: v })} />
+          <Text label="Title for the leadership exports" value={o.reportTitle ?? ''} testid="opp-report-title" onSave={(v) => save({ reportTitle: v })} hint="Leave blank to use a numbered heading. The workspace title stays private." />
+          <Text label="Interpretation for this decision" value={o.interpretation} testid="opp-interpretation" onSave={(v) => save({ interpretation: v })} hint="Write the summary you intend leadership to see. Linked insight drafts stay in the research workspace." />
         </section>
         <section data-testid="col-gaps"><h4>Gaps</h4><p className="micro">What is not yet known.</p>
-          <ul className="gaplist">{ev.gaps.map((g) => <li key={g}>{g}</li>)}{!ev.gaps.length && <li className="micro">No evidence gaps detected.</li>}</ul>
+          <p className="micro">{ev.sourceCount} linked supporting {ev.sourceCount === 1 ? 'source' : 'sources'}</p>
+          <ul className="gaplist">{ev.gaps.map((g) => <li key={g}>{g}</li>)}{!ev.gaps.length && <li className="micro">Review how well the linked evidence supports the interpretation.</li>}</ul>
           <Text label="Remaining uncertainty" value={o.uncertainty} testid="opp-uncertainty" onSave={(v) => save({ uncertainty: v })} />
         </section>
       </div>
@@ -126,7 +129,7 @@ export function Decide() {
             <tbody>{list.map((o, i) => { const e = evidenceForOpportunity(o, ev.notes, ev.links), opt = ev.options.find((x) => x.id === o.recommendedOptionId); return (
               <tr key={o.id} className={current?.id === o.id ? 'current' : ''} data-row={o.id}>
                 <td>{sort === 'rank' && canEdit() ? <><button className="iconbtn" aria-label="Move up" onClick={() => move(o.id, -1)}>↑</button><button className="iconbtn" aria-label="Move down" onClick={() => move(o.id, 1)}>↓</button></> : i + 1}</td>
-                <td><button className="linkbtn strong" onClick={() => setOpen(o.id)}>{o.title}</button></td><td>{STATE_LABEL[o.decisionState]}</td><td><span className={`chip ev-${e.level}`}>{EVIDENCE_LEVEL_LABEL[e.level]}</span></td>
+                <td><button className="linkbtn strong" onClick={() => setOpen(o.id)}>{o.title}</button></td><td>{decisionHeading(o, opt, e)}</td><td><span className={`chip ev-${e.level}`}>{EVIDENCE_LEVEL_LABEL[e.level]}</span></td>
                 {CRITERIA.map(([k]) => <td key={k}>{o.criteria[k] ?? '—'}</td>)}<td>{opt ? `${opt.title}${opt.smallestReversible ? ' · smallest reversible' : ''}` : '—'}</td>
               </tr>); })}</tbody>
           </table>
