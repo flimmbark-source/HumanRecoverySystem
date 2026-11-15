@@ -308,16 +308,29 @@ export async function createDoc<K extends Coll>(coll: K, data: Record<string, un
   setState((s) => ({ evidence: { ...s.evidence, [coll]: [...s.evidence[coll], r.doc] } }));
   return r.doc;
 }
-export async function updateDoc<K extends Coll>(coll: K, id: string, data: Record<string, unknown>): Promise<Evidence[K][number]> {
-  const current = (state.evidence[coll] as V<{ id: string }>[]).find((d) => d.id === id);
-  try {
-    const r = await patch(`/projects/${state.project!.id}/c/${coll}/${id}`, { ...data, expectedVersion: current?.version });
-    setState((s) => ({ evidence: { ...s.evidence, [coll]: (s.evidence[coll] as V<{ id: string }>[]).map((d) => (d.id === id ? r.doc : d)) } }));
-    return r.doc;
-  } catch (e) {
-    if (e instanceof ApiError && e.status === 409 && e.body.current) setState((s) => ({ evidence: { ...s.evidence, [coll]: (s.evidence[coll] as V<{ id: string }>[]).map((d) => (d.id === id ? e.body.current : d)) } }));
-    throw e;
-  }
+// Edits to one record are sent one after another, so quick successive field changes never conflict with each other.
+const docQueues = new Map<string, Promise<unknown>>();
+export function updateDoc<K extends Coll>(coll: K, id: string, data: Record<string, unknown>): Promise<Evidence[K][number]> {
+  const key = `${coll}:${id}`;
+  const run = async (): Promise<Evidence[K][number]> => {
+    const current = (state.evidence[coll] as V<{ id: string }>[]).find((d) => d.id === id);
+    try {
+      const r = await patch(`/projects/${state.project!.id}/c/${coll}/${id}`, { ...data, expectedVersion: current?.version });
+      setState((s) => ({ evidence: { ...s.evidence, [coll]: (s.evidence[coll] as V<{ id: string }>[]).map((d) => (d.id === id ? r.doc : d)) } }));
+      return r.doc;
+    } catch (e) {
+      // A real conflict (another session changed it): show their version; the caller reports it.
+      if (e instanceof ApiError && e.status === 409 && e.body.current) setState((s) => ({ evidence: { ...s.evidence, [coll]: (s.evidence[coll] as V<{ id: string }>[]).map((d) => (d.id === id ? e.body.current : d)) } }));
+      else void refreshEvidence().catch(() => {});
+      throw e;
+    }
+  };
+  // Show the change at once; the server's answer (or its version, on a conflict) replaces it.
+  setState((s) => ({ evidence: { ...s.evidence, [coll]: (s.evidence[coll] as V<{ id: string }>[]).map((d) => (d.id === id ? { ...d, ...data } : d)) } }));
+  const next = (docQueues.get(key) ?? Promise.resolve()).catch(() => {}).then(run);
+  docQueues.set(key, next);
+  void next.finally(() => { if (docQueues.get(key) === next) docQueues.delete(key); }).catch(() => {});
+  return next;
 }
 export async function deleteDocById(coll: Coll, id: string) {
   await del(`/projects/${state.project!.id}/c/${coll}/${id}`);

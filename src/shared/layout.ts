@@ -37,7 +37,7 @@ export const overlapArea = (a: Rect, b: Rect) =>
 export function nodeRect(n: WNode, layout: Layout, margin = 0): Rect {
   const p = pos(layout, n.id), w = nodeW(n);
   const tag = n.scope !== 'internal' ? 24 : 0;
-  return { x: p.x - w / 2 - margin, y: p.y - NODE_H / 2 - margin - 12, w: w + margin * 2 + 10, h: NODE_H + margin * 2 + tag + 12 };
+  return { x: p.x - w / 2 - margin, y: p.y - NODE_H / 2 - margin - 10, w: w + margin * 2 + 10, h: NODE_H + margin * 2 + tag + 10 };
 }
 
 export const LABEL_H = 34;
@@ -50,15 +50,19 @@ export interface PlacedLabel { edgeId: string; x: number; y: number; w: number; 
 export function placeLabels(m: Model, layout: Layout): Map<string, PlacedLabel> {
   const placed = new Map<string, PlacedLabel>();
   const taken: Rect[] = [];
-  const nodeRects = m.nodes.map((n) => nodeRect(n, layout, 9));
+  const nodeRects = m.nodes.map((n) => nodeRect(n, layout, 6));
+  // Lines are soft obstacles: a label should not sit on another connection when a free slot exists.
+  const geoms = new Map(m.edges.map((e) => [e.id, edgeGeom(e, m, layout)] as const));
+  const linePoints: { edgeId: string; r: Rect }[] = [];
+  for (const [edgeId, g] of geoms) if (g) for (let k = 1; k <= 9; k++) { const p = pointAt(g, k / 10); linePoints.push({ edgeId, r: { x: p.x - 9, y: p.y - 9, w: 18, h: 18 } }); }
   for (const e of m.edges) {
-    const g = edgeGeom(e, m, layout);
+    const g = geoms.get(e.id);
     if (!g) continue;
     const w = labelWidth(e.label);
     const horiz = Math.abs(g.by - g.ay) < 45, vertical = Math.abs(g.bx - g.ax) < 80;
     const base: [number, number][] = vertical
       ? [[w / 2 + 32, 0], [-w / 2 - 32, 0], [w / 2 + 35, -55], [-w / 2 - 35, -55], [0, -78], [0, 78]]
-      : horiz ? [[0, -81], [0, 81], [0, -118], [0, 118], [30, -81], [-30, -81], [0, -152], [0, 152]]
+      : horiz ? [[0, -84], [0, 88], [0, -124], [0, 128], [30, -84], [-30, -84], [0, -160], [0, 164]]
         : [[0, -70], [0, 70], [w / 2 + 38, 0], [-w / 2 - 38, 0], [0, -115], [0, 115], [w / 2 + 35, -55], [-w / 2 - 35, -55]];
     // fallback ring for dense graphs
     const ring: [number, number][] = [];
@@ -67,13 +71,15 @@ export function placeLabels(m: Model, layout: Layout): Map<string, PlacedLabel> 
     const options = [...base, ...ring];
     for (let i = 0; i < options.length; i++) {
       const [dx, dy] = options[i], x = g.mx + dx, y = g.my + dy;
-      const rect: Rect = { x: x - w / 2 - 14, y: y - LABEL_H / 2 - 8, w: w + 40, h: LABEL_H + 16 };
+      const rect: Rect = { x: x - w / 2 - 6, y: y - 26, w: w + 38, h: 43 }; // label box plus its note pin
       let hit = 0;
       for (const r of nodeRects) hit += overlapArea(rect, r);
       for (const r of taken) hit += overlapArea(rect, r);
-      const cost = i * 3 + Math.abs(dx) * 0.025 + Math.abs(dy) * 0.015 + hit * 9;
+      let soft = 0;
+      for (const lp of linePoints) if (lp.edgeId !== e.id) soft += overlapArea(rect, lp.r);
+      const cost = i * 3 + Math.abs(dx) * 0.025 + Math.abs(dy) * 0.015 + hit * 9 + soft * 0.05;
       if (cost < bestCost) { bestCost = cost; best = { edgeId: e.id, x, y, w, rect, collided: hit > 0 }; }
-      if (hit === 0 && i < base.length) break;
+      if (hit === 0 && soft === 0 && i < base.length) break;
     }
     if (best) { placed.set(e.id, best); taken.push(best.rect); }
   }

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { canEdit, editModel, select, setRoute, toast, useStore } from './store';
-import { getPlay, MOVE_SHARE, pausePlay, resetPlay, setPlay, startPlay, usePlay } from './play';
+import { MOVE_SHARE, pausePlay, resetPlay, setPlay, startPlay, usePlay } from './play';
 import { Field, Modal, Sentence, fmtMinutes } from './ui';
 import { analyzeRoute, routeFromEdges, suggestRoute } from '../shared/routes';
 import { computeElapsed, fmtFigure } from '../shared/impact';
@@ -84,7 +84,7 @@ export function Timeline() {
         </span>)}
       </div>
       {!route && <p className="micro" data-testid="route-empty">{suggestion ? suggestion.message : 'Choose a route.'} {canEdit() && 'Create a named route to trace a case.'}</p>}
-      {analysis && analysis.flags.filter((f) => f.code !== 'repeat' || true).length > 0 && (
+      {analysis && analysis.flags.length > 0 && (
         <ul className="route-flags" data-testid="route-flags">{analysis.flags.map((f) => <li key={f.message} data-level={f.level} data-code={f.code} className={f.level}>{f.level === 'error' ? 'Cannot play: ' : f.code === 'timing' ? 'Illustrative: ' : ''}{f.message}</li>)}</ul>
       )}
       {route && (
@@ -108,7 +108,6 @@ export function Timeline() {
         </>
       )}
       {builder && <RouteBuilder model={model} routeId={builder === 'edit' ? routeId : null} onClose={() => setBuilder(null)} />}
-      <span hidden>{getPlay().steps}</span>
     </div>
   );
 }

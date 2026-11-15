@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { canEdit, editLayout, getState, rememberView, select, setState, toast, undo, redo, useStore, viewBox as savedView } from './store';
 import { addEdge, addNode } from './ops';
-import { getPlay, MOVE_SHARE, usePlay } from './play';
+import { MOVE_SHARE, usePlay } from './play';
 import { EDGE_TYPES, EDGE_TYPE_HINT, EDGE_TYPE_LABEL, activityForEdge, fmtQty, type EdgeType, type Layout, type Model, type NodeKind, type WEdge, type WNode } from '../shared/model';
 import { NODE_H, edgeGeom, fitView, labelWidth, nodeW, placeLabels, pointAt, pos, resolveDrag, shortLabel, tidy, wrapNodeLabel, type ViewBox } from '../shared/layout';
 import { diffModels } from '../shared/diff';
@@ -19,7 +19,7 @@ export function edgeSub(m: Model, e: WEdge): string {
     const act = a?.activeMinutes.value == null ? (a?.activeMinutes.min !== undefined ? `${fmtQty(a.activeMinutes)}m` : '?') : `${fmtQty(a.activeMinutes)}m`;
     const w = a?.waitMinutes.value;
     const base = `${act} active${w ? ` · ${fmtQty({ ...a!.waitMinutes, value: w / 60 })}h wait` : ''}`;
-    return e.type === 'info' ? `information · ${base}` : base;
+    return e.type === 'info' ? 'information' : base;
   }
   return EDGE_TYPE_HINT[e.type];
 }
@@ -51,10 +51,10 @@ export function Graph() {
   const routeId = useStore((s) => s.routeId), branchId = useStore((s) => s.branchId);
   const canUndo = useStore((s) => s.canUndo), canRedo = useStore((s) => s.canRedo);
   const svgRef = useRef<SVGSVGElement>(null), wrapRef = useRef<HTMLDivElement>(null);
-  const [view, setView] = useState<ViewBox | null>(savedView);
+  const [view, setView] = useState<ViewBox | null>(null);
   const [dragPos, setDragPos] = useState<{ id: string; x: number; y: number } | null>(null);
   const [linkPoint, setLinkPoint] = useState<{ x: number; y: number } | null>(null);
-  const [search, setSearch] = useState(''), [hideContext, setHideContext] = useState(false), [focusOnly, setFocusOnly] = useState(false), [legend, setLegend] = useState(true);
+  const [search, setSearch] = useState(''), [hideContext, setHideContext] = useState(false), [focusOnly, setFocusOnly] = useState(false), [legend, setLegend] = useState(() => window.innerWidth > 720);
   const drag = useRef<any>(null), pointers = useRef(new Map<number, { x: number; y: number }>());
   const editable = canEdit() && mode !== 'timeline';
   const playStep = usePlay((p) => (mode === 'timeline' && p.steps ? Math.min(Math.floor(p.t), p.steps - 1) : -1));
@@ -65,11 +65,25 @@ export function Graph() {
   const labels = useMemo(() => placeLabels(visibleModel, lay), [visibleModel, lay]);
   const diff = useMemo(() => (mode === 'scenario' && compareModel && branchId !== 'baseline' ? diffModels(compareModel, model) : null), [mode, compareModel, model, branchId]);
 
-  const fit = (ids?: string[]) => { const v = fitView(visibleModel, lay, aspect(), ids); setView(v); rememberView(v); };
-  useLayoutEffect(() => { if (!view) fit(); else setView((v) => (v ? { ...v, h: v.w / aspect() } : v)); /* eslint-disable-next-line */ }, [branchId]);
+  const keep = (v: ViewBox | null) => rememberView(v ? ({ ...v, a: aspect() } as ViewBox) : null);
+  const fit = (ids?: string[]) => { const v = fitView(visibleModel, lay, aspect(), ids); setView(v); keep(v); };
+  // On a phone the whole map would be unreadable, so open on the start of the flow; Fit shows everything.
+  const firstView = () => {
+    if (window.innerWidth > 720 || model.nodes.length < 3) return fit();
+    const start = model.nodes.find((n) => n.id === model.startNodeId) ?? model.nodes[0];
+    const next = model.edges.find((e) => e.from === start.id && e.type === 'flow');
+    fit(next ? [start.id, next.to] : [start.id]);
+  };
+  // A remembered view is only reused on a canvas of similar shape; otherwise the map is fitted afresh.
+  useLayoutEffect(() => {
+    const sv = savedView as (ViewBox & { a?: number }) | null;
+    if (!view && sv && sv.a && Math.abs(sv.a - aspect()) / aspect() < 0.2 && window.innerWidth > 720) setView({ x: sv.x, y: sv.y, w: sv.w, h: sv.w / aspect() });
+    else if (!view) firstView();
+    /* eslint-disable-next-line */
+  }, [branchId]);
   useEffect(() => {
     const el = wrapRef.current; if (!el) return;
-    const ro = new ResizeObserver(() => setView((v) => (v ? { ...v, h: v.w / aspect() } : v)));
+    const ro = new ResizeObserver(() => setView((v) => { if (!v) return v; const h = v.w / aspect(); return { ...v, y: v.y + (v.h - h) / 2, h }; }));
     ro.observe(el); return () => ro.disconnect();
   }, []);
   useEffect(() => { const h = () => fit(); window.addEventListener('weave:fit', h); return () => window.removeEventListener('weave:fit', h); });
@@ -83,7 +97,7 @@ export function Graph() {
     const c = at ?? { x: v.x + v.w / 2, y: v.y + v.h / 2 };
     const w = Math.max(320, Math.min(6000, v.w * factor)), h = w / aspect();
     const nv = { x: c.x - ((c.x - v.x) * w) / v.w, y: c.y - ((c.y - v.y) * h) / v.h, w, h };
-    rememberView(nv); return nv;
+    keep(nv); return nv;
   });
   useEffect(() => {
     const svg = svgRef.current; if (!svg) return;
@@ -133,7 +147,7 @@ export function Graph() {
     pointers.current.delete(e.pointerId);
     const d = drag.current; drag.current = null;
     if (!d) return;
-    if (d.type === 'pan') { if (!d.moved) select(null); else setView((v) => { rememberView(v); return v; }); }
+    if (d.type === 'pan') { if (!d.moved) select(null); else setView((v) => { keep(v); return v; }); }
     else if (d.type === 'node') {
       if (d.moved && dragPos) { editLayout({ ...layout, [dragPos.id]: { x: dragPos.x, y: dragPos.y } }); setDragPos(null); }
       else select({ type: 'node', id: d.id });
