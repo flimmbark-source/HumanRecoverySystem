@@ -224,13 +224,21 @@ export const undo = () => applySnap(undoStack, redoStack);
 export const redo = () => applySnap(redoStack, undoStack);
 
 // ---- loading ---------------------------------------------------------------------------------------
-let viewTimer = 0;
+let viewTimer = 0, viewPending = false;
+const viewPayload = () => JSON.stringify({ branchId: state.branchId, nav: state.nav, mode: state.mode, selection: state.selection, routeId: state.routeId, session: state.session, view: viewBox });
 function saveView() {
   if (!state.project) return;
   window.clearTimeout(viewTimer);
+  viewPending = true;
   const pid = state.project.id;
-  viewTimer = window.setTimeout(() => { void put(`/projects/${pid}/view-state`, { branchId: state.branchId, nav: state.nav, mode: state.mode, selection: state.selection, routeId: state.routeId, session: state.session, view: viewBox }).catch(() => {}); }, 900);
+  viewTimer = window.setTimeout(() => { viewPending = false; void put(`/projects/${pid}/view-state`, JSON.parse(viewPayload())).catch(() => {}); }, 500);
 }
+// Leaving the page must not lose where the researcher was.
+window.addEventListener('pagehide', () => {
+  if (!viewPending || !state.project) return;
+  viewPending = false;
+  void fetch(`/api/projects/${state.project.id}/view-state`, { method: 'PUT', keepalive: true, credentials: 'same-origin', headers: { 'content-type': 'application/json' }, body: viewPayload() }).catch(() => {});
+});
 export let viewBox: { x: number; y: number; w: number; h: number } | null = null;
 export function rememberView(v: typeof viewBox) { viewBox = v; saveView(); }
 

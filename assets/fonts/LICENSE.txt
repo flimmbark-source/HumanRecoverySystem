@@ -1,0 +1,5 @@
+DejaVu Sans fonts (https://dejavu-fonts.github.io/), version 2.37.
+Fonts are (c) Bitstream (Bitstream Vera) and (c) Tavmjong Bah (Arev); DejaVu changes are in the public domain.
+They may be copied, merged, embedded and redistributed under the Bitstream Vera Fonts licence and the Arev Fonts
+licence, provided the copyright notices and the licence text accompany the fonts. Full text:
+https://dejavu-fonts.github.io/License.html

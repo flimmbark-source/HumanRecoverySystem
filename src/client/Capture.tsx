@@ -57,7 +57,7 @@ export function QuickCapture({ targetId, onSaved, compact, autoFocus }: { target
         {session ? <span className="chip session" data-testid="capture-session">◎ {session.label}</span> : <button className="linkbtn" onClick={() => openModal('session')}>Start a session to set the source</button>}
         <span className="chip">{tLabel ? `On: ${tLabel}` : 'Unassigned (inbox)'}</span>
       </div>
-      <textarea value={text} rows={compact ? 2 : 3} autoFocus={autoFocus} placeholder="What did you see or hear? One observation per note." aria-label="Note text" data-testid="capture-text"
+      <textarea value={text} rows={compact ? 2 : 3} {...(autoFocus ? { 'data-autofocus': true } : {})} placeholder="What did you see or hear? One observation per note." aria-label="Note text" data-testid="capture-text"
         onChange={(e) => { setText(e.target.value); if (split) setSplit(null); }}
         onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); void save(); } }} />
       {lines.length > 1 && !hasEpisode && (

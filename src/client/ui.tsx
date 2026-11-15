@@ -6,7 +6,7 @@ export function Modal({ title, onClose, children, wide, footer }: { title: strin
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const prev = document.activeElement as HTMLElement | null;
-    const first = ref.current?.querySelector<HTMLElement>('[autofocus], input:not([type=hidden]), textarea, select, button.primary');
+    const first = ref.current?.querySelector<HTMLElement>('[data-autofocus]') ?? ref.current?.querySelector<HTMLElement>('input:not([type=hidden]):not([type=file]), textarea, select, button.primary');
     (first ?? ref.current)?.focus();
     const key = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.stopPropagation(); onClose(); } };
     document.addEventListener('keydown', key, true);

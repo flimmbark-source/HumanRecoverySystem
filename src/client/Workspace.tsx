@@ -21,7 +21,7 @@ function NodeModal() {
   return (
     <Modal title="Add a node" onClose={closeModal} footer={<><button onClick={() => { setState({ placing: kind, modal: null }); }}>Place by clicking the map</button><button className="primary" data-testid="node-add" onClick={() => { addNode(kind, undefined, label, scope); closeModal(); }}>Add to map</button></>}>
       <Field label="Type"><select value={kind} onChange={(e) => setKind(e.target.value as NodeKind)} data-testid="node-kind">{NODE_KINDS.map((k) => <option key={k} value={k}>{NODE_KIND_LABEL[k]}</option>)}</select></Field>
-      <Field label="Name"><input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="e.g. Coordinator" data-testid="node-name" onKeyDown={(e) => { if (e.key === 'Enter') { addNode(kind, undefined, label, scope); closeModal(); } }} /></Field>
+      <Field label="Name"><input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="e.g. Coordinator" data-autofocus data-testid="node-name" onKeyDown={(e) => { if (e.key === 'Enter') { addNode(kind, undefined, label, scope); closeModal(); } }} /></Field>
       <Field label="Scope"><select value={scope} onChange={(e) => setScope(e.target.value as typeof scope)} data-testid="node-new-scope"><option value="internal">Within the reviewed scope</option><option value="external">External, with a direct interface</option><option value="context">Context only</option></select></Field>
     </Modal>
   );

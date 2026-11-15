@@ -1,0 +1,26 @@
+# One deployable path: the app and PostgreSQL on a single host. Put TLS in front (Caddy, nginx or a platform proxy).
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: weave
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      POSTGRES_DB: weave
+    volumes: [weave-db:/var/lib/postgresql/data]
+    healthcheck: { test: ["CMD-SHELL", "pg_isready -U weave"], interval: 5s, timeout: 3s, retries: 10 }
+    restart: unless-stopped
+  app:
+    build: .
+    depends_on: { db: { condition: service_healthy } }
+    environment:
+      DATABASE_URL: postgres://weave:${POSTGRES_PASSWORD}@db:5432/weave
+      SESSION_SECRET: ${SESSION_SECRET:?set SESSION_SECRET}
+      COOKIE_SECURE: ${COOKIE_SECURE:-1}
+      ALLOW_SIGNUP: ${ALLOW_SIGNUP:-1}
+      RESEARCH_PROVIDER: ${RESEARCH_PROVIDER:-none}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      RESEARCH_MODEL: ${RESEARCH_MODEL:-claude-opus-5-5}
+    ports: ["${PORT:-8787}:8787"]
+    restart: unless-stopped
+volumes:
+  weave-db:

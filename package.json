@@ -16,7 +16,10 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:e2e": "playwright test --trace off",
-    "test:all": "npm run typecheck && npm test && npm run build && npm run test:e2e"
+    "test:all": "npm run typecheck && npm test && npm run build && npm run test:e2e",
+    "check:provider": "tsx scripts/check-provider.ts",
+    "backup": "scripts/backup.sh",
+    "verify:backup": "scripts/verify-backup.sh"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.8.0",
