@@ -1,0 +1,23 @@
+{
+  "format": "weave-research-candidates",
+  "version": 1,
+  "candidates": [
+    {
+      "kind": "relationship",
+      "summary": "A coordinator reviews each submitted application",
+      "sourceId": "Synthetic walkthrough 01",
+      "basis": "During a hypothetical workflow walkthrough, the coordinator reviews each application before placement. The hypothetical state change is submitted to ready for placement.",
+      "certainty": "reported",
+      "fromId": "n2",
+      "toId": "n3",
+      "connectionType": "flow",
+      "label": "Review application",
+      "workItem": "Application",
+      "result": "Ready for placement",
+      "performerId": "n3",
+      "actionCode": "review",
+      "inputState": "submitted",
+      "outputState": "ready for placement"
+    }
+  ]
+}

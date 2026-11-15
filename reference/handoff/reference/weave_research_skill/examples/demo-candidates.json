@@ -1,0 +1,36 @@
+{
+  "format": "weave-research-candidates",
+  "version": 1,
+  "candidates": [
+    {
+      "kind": "note",
+      "summary": "Reported need for additional placement updates",
+      "sourceId": "Synthetic interview 03",
+      "basis": "A fictional volunteer reported asking for confirmation more than once.",
+      "certainty": "reported",
+      "noteType": "observation",
+      "text": "The volunteer reports needing multiple follow-ups after submitting an application.",
+      "targetId": "e2"
+    },
+    {
+      "kind": "activity",
+      "summary": "Potential internal coordinator task requiring validation",
+      "sourceId": "Synthetic workflow walk 01",
+      "basis": "In this hypothetical example, the coordinator manually reviews follow-up requests.",
+      "certainty": "inferred",
+      "ownerId": "n3",
+      "label": "Review incoming follow-up requests",
+      "minutes": null
+    },
+    {
+      "kind": "note",
+      "summary": "Follow-up data needed to understand delays",
+      "sourceId": "Synthetic research plan",
+      "basis": "The demonstration contains no measured waiting-time distribution for follow-ups.",
+      "certainty": "inferred",
+      "noteType": "question",
+      "text": "How many applications require follow-up, and what is the observed wait between submission and placement approval?",
+      "targetId": "e2"
+    }
+  ]
+}

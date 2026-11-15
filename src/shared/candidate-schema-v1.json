@@ -1,0 +1,257 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Weave Research Candidate Bundle v1",
+  "type": "object",
+  "required": [
+    "format",
+    "version",
+    "candidates"
+  ],
+  "properties": {
+    "format": {
+      "const": "weave-research-candidates"
+    },
+    "version": {
+      "const": 1
+    },
+    "candidates": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "$ref": "#/$defs/candidate"
+      }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{1,64}$"
+    },
+    "candidate": {
+      "type": "object",
+      "required": [
+        "kind",
+        "summary",
+        "sourceId",
+        "basis",
+        "certainty"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "note",
+            "node",
+            "relationship",
+            "activity"
+          ]
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "sourceId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "basis": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1200
+        },
+        "certainty": {
+          "enum": [
+            "observed",
+            "reported",
+            "inferred"
+          ]
+        },
+        "kindHint": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "noteType": {
+          "enum": [
+            "observation",
+            "measurement",
+            "hypothesis",
+            "question",
+            "insight",
+            "recommendation"
+          ]
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4000
+        },
+        "targetId": {
+          "$ref": "#/$defs/id"
+        },
+        "ownerId": {
+          "$ref": "#/$defs/id"
+        },
+        "fromId": {
+          "$ref": "#/$defs/id"
+        },
+        "toId": {
+          "$ref": "#/$defs/id"
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 140
+        },
+        "nodeType": {
+          "enum": [
+            "person",
+            "system",
+            "output",
+            "group",
+            "resource"
+          ]
+        },
+        "connectionType": {
+          "enum": [
+            "flow",
+            "info",
+            "dependency",
+            "authority",
+            "association"
+          ]
+        },
+        "minutes": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "measurementBasis": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        },
+        "workItem": {
+          "type": "string",
+          "maxLength": 250
+        },
+        "result": {
+          "type": "string",
+          "maxLength": 250
+        },
+        "inputState": {
+          "type": "string",
+          "maxLength": 250
+        },
+        "outputState": {
+          "type": "string",
+          "maxLength": 250
+        },
+        "performerId": {
+          "$ref": "#/$defs/id"
+        },
+        "actionCode": {
+          "enum": [
+            "submit",
+            "review",
+            "check",
+            "approve",
+            "request",
+            "match",
+            "notify",
+            "record",
+            "transfer",
+            "process",
+            "transform"
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "note"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "noteType",
+              "text"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "node"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "nodeType",
+              "label"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "relationship"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "fromId",
+              "toId",
+              "connectionType",
+              "label"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "activity"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "ownerId",
+              "label",
+              "minutes"
+            ]
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "minutes"
+            ],
+            "properties": {
+              "minutes": {
+                "type": "number"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "measurementBasis"
+            ]
+          }
+        }
+      ],
+      "additionalProperties": false
+    }
+  }
+}
