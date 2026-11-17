@@ -19,6 +19,7 @@ async function launch(): Promise<Page> {
   page = await webview.page();
   page.on('pageerror', (e) => errors.push(e.message));
   page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
+  page.on('response', (r) => { if (r.status() >= 400) errors.push(`${r.status()} ${r.url()}`); });
   return page;
 }
 async function restart(): Promise<Page> {
@@ -61,6 +62,14 @@ async function run() {
   step('the back button closes a dialog before it leaves the page');
   await p.getByTestId('fab-note').click();
   await p.locator('.modal').waitFor();
+  // The dialog focuses its text box, which opens the keyboard. Back first closes the keyboard, so close it first.
+  await p.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+  await new Promise((resolve) => setTimeout(resolve, 1000));
+  if ((await shell('dumpsys input_method')).includes('mInputShown=true')) {
+    console.log('  the keyboard is still open: Back closes it first');
+    await back();
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+  }
   await back();
   await p.locator('.modal').waitFor({ state: 'detached', timeout: 10_000 });
   await p.getByTestId('graph').waitFor();
