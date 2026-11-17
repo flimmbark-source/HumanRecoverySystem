@@ -10,7 +10,7 @@ import { Decide } from './Decide';
 import { CandidateImportModal, Research, RunModal } from './Research';
 import { Report } from './Report';
 import { Settings } from './Settings';
-import { Field, Modal } from './ui';
+import { Field, Modal, onDevice, saveFile } from './ui';
 import { EDGE_TYPES, EDGE_TYPE_LABEL, NODE_KINDS, NODE_KIND_LABEL, type EdgeType, type NodeKind } from '../shared/model';
 
 const NAVS: [Nav, string, string][] = [['map', 'Map', '◎'], ['notes', 'Notes', '✎'], ['insights', 'Insights', '✦'], ['decide', 'Decide', '⚖'], ['research', 'Research', '⌕'], ['report', 'Brief', '▤'], ['settings', 'Project', '⚙']];
@@ -53,7 +53,7 @@ function SaveStatus() {
 
 function Banners() {
   const save = useStore((s) => s.save), error = useStore((s) => s.saveError), conflict = useStore((s) => s.conflict), recovered = useStore((s) => s.recovered), model = useStore((s) => s.model);
-  const download = () => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(model, null, 2)], { type: 'application/json' })); a.download = 'weave-local-draft.json'; a.click(); };
+  const download = () => void saveFile(new Blob([JSON.stringify(model, null, 2)], { type: 'application/json' }), 'weave-local-draft.json');
   return (<>
     {recovered && (<div className="banner warn" role="alert" data-testid="recovered-banner"><span><b>Unsaved draft found.</b> Changes from {new Date(recovered.at).toLocaleString()} were kept in this browser but never reached the server.</span><span><button className="primary" onClick={restoreRecovered} data-testid="recover-restore">Restore draft</button><button onClick={discardRecovered} data-testid="recover-discard">Discard</button></span></div>)}
     {save === 'failed' && (<div className="banner bad" role="alert" data-testid="save-failed-banner"><span><b>Your last change is not saved yet.</b> {error} It is kept in this browser and will be retried.</span><span><button className="primary" onClick={() => void saveNow()}>Retry now</button><button onClick={download}>Download draft</button></span></div>)}
@@ -84,7 +84,7 @@ export function Workspace({ pid }: { pid: string }) {
         <a className="brand" href="#/" aria-label="All projects" onClick={() => void flush()}><div className="brandmark">w</div><div className="brandtext"><div className="brandname">weave</div><div className="kicker">Operational Studio</div></div></a>
         <div className="workspace-card"><span className="kicker">Workflow</span><b title={project.name}>{project.name}</b>{project.isSynthetic && <span className="chip warnchip">synthetic data</span>}</div>
         <ul className="navlist">{NAVS.map(([k, label, icon]) => (<li key={k}><button className={`navbtn${nav === k ? ' active' : ''}`} aria-current={nav === k ? 'page' : undefined} onClick={() => setNav(k)} data-testid={`nav-${k}`}><span className="navicon" aria-hidden="true">{icon}</span><span className="navlabel">{label}</span>{badge[k] ? <span className="count">{badge[k]}</span> : null}</button></li>))}</ul>
-        <div className="left-bottom"><a className="linkbtn" href="#/" onClick={() => void flush()}>All projects</a><button className="linkbtn" onClick={signOut}>Sign out</button></div>
+        <div className="left-bottom"><a className="linkbtn" href="#/" onClick={() => void flush()}>All projects</a>{!onDevice && <button className="linkbtn" onClick={signOut}>Sign out</button>}</div>
       </nav>
       <div className="center">
         <header className="topbar">

@@ -6,3 +6,4 @@ test-results
 playwright-report
 backups/*.sql
 *.log
+android/build/

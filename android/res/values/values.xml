@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Weave</string>
+    <color name="ink">#20352F</color>
+    <color name="canvas">#F5F7F2</color>
+    <style name="Weave" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/canvas</item>
+        <item name="android:colorPrimary">#225A4B</item>
+        <item name="android:colorAccent">#225A4B</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+    </style>
+</resources>

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { get, post } from './api';
 import { issuesText, ApiError } from './api';
 import { fail, signIn, signOut, toast, useStore } from './store';
-import { Field, when } from './ui';
+import { Field, onDevice, when } from './ui';
 
 export function Login() {
   const [email, setEmail] = useState(''), [password, setPassword] = useState(''), [name, setName] = useState(''), [signup, setSignup] = useState(false), [error, setError] = useState('');
@@ -77,7 +77,7 @@ export function Projects() {
     <main className="projects" data-testid="projects">
       <header className="projects-head">
         <div className="brand"><div className="brandmark">w</div><div><div className="brandname">weave</div><div className="kicker">Operational Studio</div></div></div>
-        <span>{user.name} <button className="linkbtn" onClick={signOut} data-testid="signout">Sign out</button></span>
+        {!onDevice && <span>{user.name} <button className="linkbtn" onClick={signOut} data-testid="signout">Sign out</button></span>}
       </header>
       <div className="projects-body">
         <div className="page-head"><div><h1>Projects</h1><p>One focused workflow per project. Projects are private to the people you add.</p></div>

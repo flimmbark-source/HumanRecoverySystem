@@ -6,6 +6,7 @@ Built from the handoff in `reference/handoff/` (product spec, acceptance tests, 
 
 - Acceptance status and known gaps: [`docs/ACCEPTANCE-RESULTS.md`](docs/ACCEPTANCE-RESULTS.md)
 - Deployment and operations: [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)
+- Android app: [`docs/ANDROID.md`](docs/ANDROID.md)
 
 ## Stack
 
@@ -15,10 +16,16 @@ TypeScript throughout. React + Vite client (the v0.7 SVG canvas is ported, not r
 src/shared/    model schema, sentence generator, impact engine, routes, diff, legacy import, candidate validation, layout
 src/server/    API, auth, store, research jobs, providers, reports, migrate, seed
 src/client/    React app
+src/device/    the API and its database (PGlite) in a Web Worker, for the Android app
+android/       the Android WebView shell and its build script
 migrations/    SQL migrations
 tests/         unit, API (real PostgreSQL) and browser (Playwright) tests
 reference/     the original handoff, unchanged
 ```
+
+## Weave on an Android phone
+
+The Android app runs the client, the API and the database on the phone, with no server and no network. On the phone, download **[Weave.apk](https://github.com/flimmbark-source/HumanRecoverySystem/releases/latest/download/Weave.apk)** from the [latest release](https://github.com/flimmbark-source/HumanRecoverySystem/releases/latest) and open it. Android 8 or later. See [`docs/ANDROID.md`](docs/ANDROID.md) for what differs from the server, backups, the build and the signing key.
 
 ## Try Weave in GitHub Codespaces
 
@@ -93,7 +100,10 @@ That serves the app and API together on http://localhost:8787.
 | `npm run seed` | Create the synthetic accounts and project (safe to repeat) |
 | `npm test` | Unit and API tests against `weave_test` (**resets that database**) |
 | `npm run test:e2e` | Browser tests against the production build (**resets `weave_test`**; run `npm run build` first) |
-| `npm run test:all` | Typecheck, unit + API, build, browser tests |
+| `npm run test:pglite` | The API tests again, on PGlite (the database in the Android app) |
+| `npm run build:device` | Build the client, API and database that run on a phone into `dist/device` |
+| `npm run test:device` | Browser tests of `dist/device` at phone size (run `npm run build:device` first) |
+| `npm run test:all` | Typecheck, unit + API on PostgreSQL and on PGlite, build, browser tests, device build and its tests |
 | `npm run verify:backup` | Back up `DATABASE_URL`, restore into a scratch database, compare, clean up |
 | `npm run check:provider` | Optional live check of the real research provider (needs credentials) |
 

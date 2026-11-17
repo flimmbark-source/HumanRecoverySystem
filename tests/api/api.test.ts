@@ -1,5 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { beforeAll, describe, expect, it } from 'vitest';
+import { app } from '../../src/server/app';
+import { createSession } from '../../src/server/auth';
 import { pool } from '../../src/server/db';
 import { runOnce } from '../../src/server/research';
 import { compare } from '../../src/shared/impact';
@@ -25,6 +27,15 @@ describe('start, persistence and conflicts', () => {
     const tries = [];
     for (let i = 0; i < 9; i++) tries.push((await c.post('/auth/login', { email: 'nobody@weave.test', password: 'wrong-password' })).status);
     expect(tries).toEqual([401, 401, 401, 401, 401, 401, 401, 401, 429]);
+  });
+
+  it('accepts the session token as a bearer token, as the app on a phone sends it', async () => {
+    const token = await createSession(ok(await owner.get('/me')).user.id);
+    const me = (authorization: string) => app.request('/api/me', { headers: { authorization } });
+    expect((await me(`Bearer ${token}`)).status).toBe(200);
+    expect((await me('Bearer not-a-session')).status).toBe(401);
+    expect((await app.request('/api/auth/logout', { method: 'POST', headers: { authorization: `Bearer ${token}` } })).status).toBe(200);
+    expect((await me(`Bearer ${token}`)).status).toBe(401);
   });
 
   it('creates an empty project next to the synthetic one and keeps them independent', async () => {
