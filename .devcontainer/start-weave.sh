@@ -15,8 +15,15 @@ flock 9
 ready() {
   [[ "$(curl -fsS --max-time 2 http://127.0.0.1:5173/api/health 2>/dev/null)" == '{"ok":true}' ]]
 }
+show_url() {
+  if [[ -n "${CODESPACE_NAME:-}" && -n "${GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN:-}" ]]; then
+    echo "[weave] Open https://${CODESPACE_NAME}-5173.${GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN}"
+  else
+    echo "[weave] Open port 5173 from the Codespaces Ports tab."
+  fi
+}
 if ready; then
-  echo "[weave] Already running on port 5173."
+  show_url
   exit 0
 fi
 
@@ -26,7 +33,7 @@ launcher=$!
 deadline=$((SECONDS + 45))
 while (( SECONDS < deadline )) && kill -0 "$launcher" 2>/dev/null; do
   if ready; then
-    echo "[weave] Ready on port 5173."
+    show_url
     exit 0
   fi
   sleep 1

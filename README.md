@@ -26,7 +26,7 @@ From this branch on GitHub, choose **Code → Codespaces → Create codespace**.
 
 **Demo login:** `owner@weave.test` / `weave-demo-1`.
 
-For an existing Codespace, pull this branch and run **Codespaces: Rebuild Container** once from the Command Palette. Back up any existing PostgreSQL data before rebuilding. If startup fails, check `.weave-codespace/app.log` and retry with `bash .devcontainer/start-weave.sh`.
+For an existing Codespace, pull this branch and run `npm start`. It starts the demo if needed and prints the forwarded link. If PostgreSQL tools are missing, back up any existing database and run **Codespaces: Rebuild Container** once from the Command Palette. Startup logs are in `.weave-codespace/app.log`.
 
 The demo database lives in the ignored `.weave-codespace/` directory. To use another database, create `.weave-codespace/no-autostart` before starting the Codespace, then run `npm run dev` with your existing `DATABASE_URL`. The manual foreground demo command is `npm run codespace`.
 
@@ -87,7 +87,7 @@ That serves the app and API together on http://localhost:8787.
 | --- | --- |
 | `npm run dev` | API on :8787 and Vite on :5173 with reload |
 | `npm run build` | Typecheck, client build, server bundle into `dist/` |
-| `npm start` | Run the production build (applies pending migrations first) |
+| `npm start` | Start the demo in Codespaces with default settings, or serve the compiled app locally or with a configured database |
 | `npm run worker` | Run the job worker as its own process (set `RUN_WORKER=0` on the web process) |
 | `npm run migrate` | Apply pending migrations |
 | `npm run seed` | Create the synthetic accounts and project (safe to repeat) |

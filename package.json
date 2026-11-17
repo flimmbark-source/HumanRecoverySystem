@@ -10,7 +10,7 @@
     "codespace": "bash .devcontainer/run-weave.sh",
     "dev": "concurrently -k \"node --import tsx --watch src/server/main.ts\" \"vite\"",
     "build": "tsc --noEmit && vite build && esbuild src/server/main.ts src/server/migrate.ts src/server/seed.ts src/server/worker.ts --bundle --platform=node --format=esm --packages=external --outdir=dist/server",
-    "start": "node dist/server/main.js",
+    "start": "node scripts/start.mjs",
     "worker": "node dist/server/worker.js",
     "migrate": "tsx src/server/migrate.ts",
     "seed": "node --import tsx src/server/seed.ts",
