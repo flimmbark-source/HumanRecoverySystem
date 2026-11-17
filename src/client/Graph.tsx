@@ -168,6 +168,7 @@ export function Graph() {
     } else if (d.type === 'node' || d.type === 'label') {
       if (e.pointerId !== d.pointerId) return;
       if (!d.moved && Math.hypot(e.clientX - d.cx, e.clientY - d.cy) < 5) return;
+      if (!d.moved && d.type === 'label') svgRef.current!.setPointerCapture(e.pointerId);
       d.moved = true;
       const p = toSvg(e.clientX, e.clientY);
       const x = p.x + d.dx, y = p.y + d.dy;
@@ -189,7 +190,7 @@ export function Graph() {
       } else select({ type: 'node', id: d.id });
     } else if (d.type === 'label') {
       setDragLabel(null);
-      if (!d.moved) { select({ type: 'edge', id: d.id }); return; }
+      if (!d.moved) return;
       const edge = visibleModel.edges.find((edge) => edge.id === d.id);
       const g = edge && edgeGeom(edge, visibleModel, layout);
       if (g) {
@@ -215,7 +216,8 @@ export function Graph() {
   const startBoxDrag = (e: React.PointerEvent, type: 'node' | 'label', id: string, point: LabelPoint) => {
     const p = toSvg(e.clientX, e.clientY);
     drag.current = { type, id, pointerId: e.pointerId, dx: point.x - p.x, dy: point.y - p.y, cx: e.clientX, cy: e.clientY, moved: false };
-    svgRef.current!.setPointerCapture(e.pointerId);
+    // Keep a stationary click or tap on its label. A real drag transfers capture to the canvas.
+    (type === 'label' ? e.currentTarget : svgRef.current!).setPointerCapture(e.pointerId);
   };
   const startLink = (e: React.PointerEvent | React.KeyboardEvent, n: WNode, dragging: boolean) => {
     e.stopPropagation(); e.preventDefault();
@@ -293,7 +295,7 @@ export function Graph() {
                     ev.stopPropagation();
                     if (labelsDraggable && ev.isPrimary && ev.button === 0) startBoxDrag(ev, 'label', e.id, l);
                   }}
-                  onClick={(ev) => { ev.stopPropagation(); if (!labelsDraggable || ev.detail === 0) select({ type: 'edge', id: e.id }); }}>
+                  onClick={(ev) => { ev.stopPropagation(); select({ type: 'edge', id: e.id }); }}>
                   <rect x={-w / 2} y={-21} rx={8} width={w} height={33} fill={LABEL_FILL[e.type]} stroke={color} strokeWidth={sel ? 2.2 : 1} />
                   <text x={0} y={-8} textAnchor="middle" className="edge-title">{shortLabel(e.label)}</text>
                   <text x={0} y={4} textAnchor="middle" className="edge-sub">{edgeSub(model, e)}</text>
