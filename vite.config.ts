@@ -19,6 +19,7 @@ export default defineConfig({
       allowedHosts: [forwardedHost],
       hmr: { clientPort: 443 },
     }),
-    proxy: { '/api': 'http://localhost:8787' },
+    // Match the API path at a segment boundary so Vite can serve /api.ts.
+    proxy: { '^/api(?:/|[?]|$)': 'http://localhost:8787' },
   },
 });
