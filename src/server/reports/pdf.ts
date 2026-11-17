@@ -171,6 +171,9 @@ export function mapPdf(input: Brief): Promise<Buffer> {
     doc.stroke(); doc.undash();
     if (e.directed) { const a = Math.atan2(g.by - g.cy, g.bx - g.cx); doc.moveTo(g.bx, g.by).lineTo(g.bx - 10 * Math.cos(a - 0.45), g.by - 10 * Math.sin(a - 0.45)).moveTo(g.bx, g.by).lineTo(g.bx - 10 * Math.cos(a + 0.45), g.by - 10 * Math.sin(a + 0.45)).lineWidth(2).strokeColor(color).stroke(); }
     const l = labels.get(e.id); if (!l) continue;
+    if (Math.hypot(l.x - g.mx, l.y - g.my) > 125) {
+      doc.moveTo(g.mx, g.my).lineTo(l.x, l.y).lineWidth(1).strokeColor(color).dash(2, { space: 4 }).stroke().undash();
+    }
     doc.roundedRect(l.x - l.w / 2, l.y - 21, l.w, 33, 7).lineWidth(1).fillAndStroke('#ffffff', color);
     doc.font(F.b).fontSize(10).fillColor(INK).text(shortLabel(e.label), l.x - l.w / 2, l.y - 16, { width: l.w, align: 'center', lineBreak: false });
     const a = activityForEdge(m, e.id);

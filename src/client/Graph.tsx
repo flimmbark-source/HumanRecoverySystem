@@ -3,7 +3,7 @@ import { canEdit, editLayout, getState, rememberView, select, setState, toast, u
 import { addEdge, addNode } from './ops';
 import { MOVE_SHARE, usePlay } from './play';
 import { EDGE_TYPES, EDGE_TYPE_HINT, EDGE_TYPE_LABEL, activityForEdge, fmtQty, type EdgeType, type Layout, type Model, type NodeKind, type WEdge, type WNode } from '../shared/model';
-import { NODE_H, edgeGeom, fitView, followLabel, labelWidth, nodeW, placeLabels, pointAt, pos, resolveDrag, shortLabel, tidy, wrapNodeLabel, type LabelPoint, type ViewBox } from '../shared/layout';
+import { NODE_H, edgeGeom, fitView, followLabel, labelOffset, labelWidth, nodeW, placeLabels, pointAt, pos, resolveDrag, shortLabel, tidy, wrapNodeLabel, type LabelPoint, type ViewBox } from '../shared/layout';
 import { diffModels } from '../shared/diff';
 import { analyzeRoute } from '../shared/routes';
 
@@ -13,6 +13,12 @@ const LABEL_FILL: Record<EdgeType, string> = { flow: '#f1f6fc', info: '#eff9f5',
 const PALETTE: Record<NodeKind, [string, string, string]> = { person: ['#e1f2e7', '#f6fbf7', '#8bc3a3'], system: ['#dbe9fa', '#f5f9fd', '#85abd1'], output: ['#f9ead2', '#fffbf4', '#d3a96a'], group: ['#eee7f6', '#faf8fd', '#ad99ca'], resource: ['#e5edef', '#f7fafb', '#9cafb8'] };
 export const KIND_ICON: Record<NodeKind, string> = { person: '◉', system: '▦', output: '◇', group: '❖', resource: '▤' };
 const LEGEND_KEY = 'weave:map-legend';
+
+type Drag =
+  | { type: 'node' | 'label'; id: string; pointerId: number; cx: number; cy: number; dx: number; dy: number; moved: boolean }
+  | { type: 'pan'; vx: number; vy: number; cx: number; cy: number; moved: boolean }
+  | { type: 'pinch'; d: number }
+  | { type: 'link'; from: string };
 
 function legendInitiallyOpen() {
   try {
@@ -62,10 +68,11 @@ export function Graph() {
   const svgRef = useRef<SVGSVGElement>(null), wrapRef = useRef<HTMLDivElement>(null);
   const [view, setView] = useState<ViewBox | null>(null);
   const [dragPos, setDragPos] = useState<{ id: string; x: number; y: number } | null>(null);
+  const [dragLabel, setDragLabel] = useState<(LabelPoint & { id: string }) | null>(null);
   const [labelPreference, setLabelPreference] = useState<{ layout: Layout; positions: ReadonlyMap<string, LabelPoint> } | null>(null);
   const [linkPoint, setLinkPoint] = useState<{ x: number; y: number } | null>(null);
   const [search, setSearch] = useState(''), [hideContext, setHideContext] = useState(false), [focusOnly, setFocusOnly] = useState(false), [legend, setLegend] = useState(legendInitiallyOpen);
-  const drag = useRef<any>(null), pointers = useRef(new Map<number, { x: number; y: number }>());
+  const drag = useRef<Drag | null>(null), pointers = useRef(new Map<number, { x: number; y: number }>());
   const editable = canEdit() && mode !== 'timeline';
   const playStep = usePlay((p) => (mode === 'timeline' && p.steps ? Math.min(Math.floor(p.t), p.steps - 1) : -1));
 
@@ -140,6 +147,7 @@ export function Graph() {
   const dim = (id: string, text: string) => (neighbors && !neighbors.has(id)) || !matches(text);
 
   const onBgDown = (e: React.PointerEvent) => {
+    if (drag.current?.type === 'node' || drag.current?.type === 'label') return;
     pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (pointers.current.size === 2) { const [a, b] = [...pointers.current.values()]; drag.current = { type: 'pinch', d: Math.hypot(a.x - b.x, a.y - b.y) }; return; }
     if (placing && editable) { const p = toSvg(e.clientX, e.clientY); addNode(placing as NodeKind, p); setState({ placing: null }); return; }
@@ -157,17 +165,21 @@ export function Graph() {
       const r = svgRef.current!.getBoundingClientRect();
       if (Math.hypot(e.clientX - d.cx, e.clientY - d.cy) > 4) d.moved = true;
       setView((v) => (v ? { ...v, x: d.vx - ((e.clientX - d.cx) * v.w) / r.width, y: d.vy - ((e.clientY - d.cy) * v.h) / r.height } : v));
-    } else if (d.type === 'node') {
+    } else if (d.type === 'node' || d.type === 'label') {
+      if (e.pointerId !== d.pointerId) return;
       if (!d.moved && Math.hypot(e.clientX - d.cx, e.clientY - d.cy) < 5) return;
       d.moved = true;
       const p = toSvg(e.clientX, e.clientY);
-      setDragPos({ id: d.id, ...resolveDrag(model, layout, d.id, p.x + d.dx, p.y + d.dy) });
+      const x = p.x + d.dx, y = p.y + d.dy;
+      if (d.type === 'label') setDragLabel({ id: d.id, x, y });
+      else setDragPos({ id: d.id, ...resolveDrag(model, layout, d.id, x, y) });
     } else if (d.type === 'link') setLinkPoint(toSvg(e.clientX, e.clientY));
   };
   const onUp = (e: React.PointerEvent) => {
     pointers.current.delete(e.pointerId);
-    const d = drag.current; drag.current = null;
-    if (!d) return;
+    const d = drag.current;
+    if (!d || ('pointerId' in d && e.pointerId !== d.pointerId)) return;
+    drag.current = null;
     if (d.type === 'pan') { if (!d.moved) select(null); else setView((v) => { keep(v); return v; }); }
     else if (d.type === 'node') {
       if (d.moved && dragPos) {
@@ -175,6 +187,17 @@ export function Graph() {
         editLayout(lay);
         setDragPos(null);
       } else select({ type: 'node', id: d.id });
+    } else if (d.type === 'label') {
+      setDragLabel(null);
+      if (!d.moved) { select({ type: 'edge', id: d.id }); return; }
+      const edge = visibleModel.edges.find((edge) => edge.id === d.id);
+      const g = edge && edgeGeom(edge, visibleModel, layout);
+      if (g) {
+        const p = toSvg(e.clientX, e.clientY);
+        const nextLayout = { ...layout, [d.id]: labelOffset({ x: p.x + d.dx, y: p.y + d.dy }, g) };
+        setLabelPreference({ layout: nextLayout, positions: labels });
+        editLayout(nextLayout);
+      }
     } else if (d.type === 'link') {
       const p = toSvg(e.clientX, e.clientY);
       const dest = model.nodes.find((n) => n.id !== d.from && Math.abs(pos(layout, n.id).x - p.x) < nodeW(n) / 2 + 8 && Math.abs(pos(layout, n.id).y - p.y) < NODE_H / 2 + 8);
@@ -184,10 +207,14 @@ export function Graph() {
   };
   const onNodeDown = (e: React.PointerEvent, n: WNode) => {
     e.stopPropagation();
+    if (!e.isPrimary || e.button !== 0) return;
     if (linkFrom) { if (linkFrom !== n.id) addEdge(linkFrom, n.id); setState({ linkFrom: null }); setLinkPoint(null); return; }
     if (!editable) { select({ type: 'node', id: n.id }); return; }
-    const p = toSvg(e.clientX, e.clientY), np = pos(layout, n.id);
-    drag.current = { type: 'node', id: n.id, dx: np.x - p.x, dy: np.y - p.y, cx: e.clientX, cy: e.clientY, moved: false };
+    startBoxDrag(e, 'node', n.id, pos(layout, n.id));
+  };
+  const startBoxDrag = (e: React.PointerEvent, type: 'node' | 'label', id: string, point: LabelPoint) => {
+    const p = toSvg(e.clientX, e.clientY);
+    drag.current = { type, id, pointerId: e.pointerId, dx: point.x - p.x, dy: point.y - p.y, cx: e.clientX, cy: e.clientY, moved: false };
     svgRef.current!.setPointerCapture(e.pointerId);
   };
   const startLink = (e: React.PointerEvent | React.KeyboardEvent, n: WNode, dragging: boolean) => {
@@ -216,6 +243,7 @@ export function Graph() {
   const v = view ?? { x: 0, y: 0, w: 1200, h: 720 };
   const ghosts = diff && compareModel ? { edges: compareModel.edges.filter((e) => diff.removed.has(e.id)), nodes: compareModel.nodes.filter((n) => diff.removed.has(n.id)) } : null;
   const ghostLayout: Layout = ghosts ? { ...Object.fromEntries(compareModel!.nodes.map((n) => [n.id, pos(lay, n.id)])), ...lay } : lay;
+  const labelsDraggable = editable && !linkFrom && !placing;
   const toggleLegend = () => {
     setLegend(!legend);
     try { localStorage.setItem(LEGEND_KEY, legend ? 'closed' : 'open'); } catch { /* The in-memory toggle still works. */ }
@@ -228,8 +256,12 @@ export function Graph() {
         <label className="toggle"><input type="checkbox" checked={focusOnly} onChange={(e) => setFocusOnly(e.target.checked)} /> Focus on selection</label>
         {model.nodes.some((n) => n.scope === 'context') && <label className="toggle"><input type="checkbox" checked={hideContext} onChange={(e) => setHideContext(e.target.checked)} /> Hide context</label>}
       </div>
-      <svg ref={svgRef} className="graph" data-testid="graph" viewBox={`${v.x} ${v.y} ${v.w} ${v.h}`} role="group" aria-label={`Map of ${model.name || 'the workflow'}: ${model.nodes.length} nodes and ${model.edges.length} connections`}
-        onPointerDown={onBgDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={() => { drag.current = null; pointers.current.clear(); setDragPos(null); }}>
+      <svg ref={svgRef} className={`graph${labelsDraggable ? ' labels-draggable' : ''}${dragLabel ? ' dragging-label' : ''}`} data-testid="graph" viewBox={`${v.x} ${v.y} ${v.w} ${v.h}`} role="group" aria-label={`Map of ${model.name || 'the workflow'}: ${model.nodes.length} nodes and ${model.edges.length} connections`}
+        onPointerDown={onBgDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={(e) => {
+          const d = drag.current;
+          if (d && 'pointerId' in d && d.pointerId !== e.pointerId) return;
+          drag.current = null; pointers.current.clear(); setDragPos(null); setDragLabel(null);
+        }}>
         <defs>
           <pattern id="dots" width="28" height="28" patternUnits="userSpaceOnUse"><circle cx="2" cy="2" r="1.3" fill="#d5ddd3" /></pattern>
           {EDGE_TYPES.map((t) => (<marker key={t} id={`arrow-${t}`} markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto" markerUnits="userSpaceOnUse"><path d="M1 1 L7 4.5 L1 8" fill="none" stroke={TYPE_COLOR[t]} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></marker>))}
@@ -242,7 +274,7 @@ export function Graph() {
 
         <g>
           {visibleModel.edges.map((e) => {
-            const g = edgeGeom(e, visibleModel, lay), l = labels.get(e.id);
+            const g = edgeGeom(e, visibleModel, lay), l = dragLabel?.id === e.id ? dragLabel : labels.get(e.id);
             if (!g || !l) return null;
             const sel = selection?.type === 'edge' && selection.id === e.id, color = TYPE_COLOR[e.type], count = noteCount(e.id);
             const changed = diff && (diff.added.has(e.id) || diff.changed.has(e.id)), flagged = diff?.downstream.some((d) => d.id === e.id);
@@ -256,7 +288,12 @@ export function Graph() {
                 <path className="edgepath" d={g.d} stroke={color} strokeWidth={sel ? 4 : 2.6} strokeDasharray={DASH[e.type]} fill="none" markerEnd={e.directed ? `url(#arrow-${e.type})` : undefined} markerStart={e.type === 'authority' ? 'url(#auth-start)' : undefined} />
                 <path className="edgehot" d={g.d} stroke="transparent" strokeWidth={22} fill="none" onPointerDown={(ev) => ev.stopPropagation()} onClick={(ev) => { ev.stopPropagation(); select({ type: 'edge', id: e.id }); }} />
                 {far && <line x1={g.mx} y1={g.my} x2={l.x} y2={l.y} stroke={color} strokeWidth={1} strokeDasharray="2 4" opacity={0.7} pointerEvents="none" />}
-                <g className="edgeLabel" data-label-for={e.id} transform={`translate(${l.x} ${l.y})`} onPointerDown={(ev) => ev.stopPropagation()} onClick={(ev) => { ev.stopPropagation(); select({ type: 'edge', id: e.id }); }}>
+                <g className="edgeLabel" data-label-for={e.id} transform={`translate(${l.x} ${l.y})`}
+                  onPointerDown={(ev) => {
+                    ev.stopPropagation();
+                    if (labelsDraggable && ev.isPrimary && ev.button === 0) startBoxDrag(ev, 'label', e.id, l);
+                  }}
+                  onClick={(ev) => { ev.stopPropagation(); if (!labelsDraggable || ev.detail === 0) select({ type: 'edge', id: e.id }); }}>
                   <rect x={-w / 2} y={-21} rx={8} width={w} height={33} fill={LABEL_FILL[e.type]} stroke={color} strokeWidth={sel ? 2.2 : 1} />
                   <text x={0} y={-8} textAnchor="middle" className="edge-title">{shortLabel(e.label)}</text>
                   <text x={0} y={4} textAnchor="middle" className="edge-sub">{edgeSub(model, e)}</text>

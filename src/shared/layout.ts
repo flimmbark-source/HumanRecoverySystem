@@ -47,13 +47,29 @@ export const shortLabel = (s: string, max = 23) => (s.length > max ? s.slice(0, 
 export interface PlacedLabel { edgeId: string; x: number; y: number; w: number; rect: Rect; collided: boolean }
 export type LabelPoint = Pick<PlacedLabel, 'x' | 'y'>;
 
+function rotate({ x, y }: LabelPoint, angle: number): LabelPoint {
+  const cos = Math.cos(angle), sin = Math.sin(angle);
+  return { x: x * cos - y * sin, y: x * sin + y * cos };
+}
+
+const connectionAngle = (g: EdgeGeom) => Math.atan2(g.by - g.ay, g.bx - g.ax);
+
+export function labelOffset(label: LabelPoint, g: EdgeGeom): LabelPoint {
+  return rotate({ x: label.x - g.mx, y: label.y - g.my }, -connectionAngle(g));
+}
+
+function labelAtOffset(offset: LabelPoint, g: EdgeGeom): LabelPoint {
+  const delta = rotate(offset, connectionAngle(g));
+  return { x: g.mx + delta.x, y: g.my + delta.y };
+}
+
 /** Carry the label's offset with the moving connection. The label itself stays upright. */
 export function followLabel(label: LabelPoint, from: EdgeGeom, to: EdgeGeom): LabelPoint {
-  const angle = Math.atan2(to.by - to.ay, to.bx - to.ax) - Math.atan2(from.by - from.ay, from.bx - from.ax);
-  const dx = label.x - from.mx, dy = label.y - from.my;
-  const cos = Math.cos(angle), sin = Math.sin(angle);
-  return { x: to.mx + dx * cos - dy * sin, y: to.my + dx * sin + dy * cos };
+  return labelAtOffset(labelOffset(label, from), to);
 }
+
+// Reserve space for the box and its note badge.
+const labelRect = (x: number, y: number, w: number): Rect => ({ x: x - w / 2 - 6, y: y - 26, w: w + 38, h: 43 });
 
 /** Collision-aware placement. Each label takes the cheapest free slot near its link; a leader keeps it legible when it must move away. */
 export function placeLabels(m: Model, layout: Layout, preferred?: ReadonlyMap<string, LabelPoint>): Map<string, PlacedLabel> {
@@ -62,18 +78,28 @@ export function placeLabels(m: Model, layout: Layout, preferred?: ReadonlyMap<st
   const nodeRects = m.nodes.map((n) => nodeRect(n, layout, 6));
   // Lines are soft obstacles: a label should not sit on another connection when a free slot exists.
   const geoms = new Map(m.edges.map((e) => [e.id, edgeGeom(e, m, layout)] as const));
+  // Reserve clear manual positions before arranging automatic labels.
+  for (const edge of m.edges) {
+    const g = geoms.get(edge.id);
+    if (!g || !Object.hasOwn(layout, edge.id)) continue;
+    const { x, y } = labelAtOffset(layout[edge.id], g);
+    const w = labelWidth(edge.label), rect = labelRect(x, y, w);
+    if (nodeRects.some((r) => overlapArea(rect, r) > 0) || taken.some((r) => overlapArea(rect, r) > 0)) continue;
+    placed.set(edge.id, { edgeId: edge.id, x, y, w, rect, collided: false });
+    taken.push(rect);
+  }
   const linePoints: { edgeId: string; r: Rect }[] = [];
   for (const [edgeId, g] of geoms) if (g) for (let k = 1; k <= 9; k++) { const p = pointAt(g, k / 10); linePoints.push({ edgeId, r: { x: p.x - 9, y: p.y - 9, w: 18, h: 18 } }); }
   for (const e of m.edges) {
     const g = geoms.get(e.id);
-    if (!g) continue;
+    if (!g || placed.has(e.id)) continue;
     const w = labelWidth(e.label);
     const horiz = Math.abs(g.by - g.ay) < 45, vertical = Math.abs(g.bx - g.ax) < 80;
     const base: [number, number][] = vertical
       ? [[w / 2 + 32, 0], [-w / 2 - 32, 0], [w / 2 + 35, -55], [-w / 2 - 35, -55], [0, -78], [0, 78]]
       : horiz ? [[0, -84], [0, 88], [0, -124], [0, 128], [30, -84], [-30, -84], [0, -160], [0, 164]]
         : [[0, -70], [0, 70], [w / 2 + 38, 0], [-w / 2 - 38, 0], [0, -115], [0, 115], [w / 2 + 35, -55], [-w / 2 - 35, -55]];
-    const last = preferred?.get(e.id);
+    const last = Object.hasOwn(layout, e.id) ? labelAtOffset(layout[e.id], g) : preferred?.get(e.id);
     if (last) base.unshift([last.x - g.mx, last.y - g.my]);
     // fallback ring for dense graphs
     const ring: [number, number][] = [];
@@ -82,7 +108,7 @@ export function placeLabels(m: Model, layout: Layout, preferred?: ReadonlyMap<st
     const options = [...base, ...ring];
     for (let i = 0; i < options.length; i++) {
       const [dx, dy] = options[i], x = g.mx + dx, y = g.my + dy;
-      const rect: Rect = { x: x - w / 2 - 6, y: y - 26, w: w + 38, h: 43 }; // label box plus its note pin
+      const rect = labelRect(x, y, w);
       let hit = 0;
       for (const r of nodeRects) hit += overlapArea(rect, r);
       for (const r of taken) hit += overlapArea(rect, r);
@@ -156,6 +182,13 @@ export function fitView(m: Model, layout: Layout, aspect: number, ids?: string[]
   const nodes = m.nodes.filter((n) => !ids || ids.includes(n.id));
   if (!nodes.length) return { x: 0, y: 0, w: 1200, h: 1200 / aspect };
   const pts = nodes.map((n) => pos(layout, n.id));
+  if (!ids) {
+    for (const edge of m.edges) {
+      if (!Object.hasOwn(layout, edge.id)) continue;
+      const g = edgeGeom(edge, m, layout);
+      if (g) pts.push(labelAtOffset(layout[edge.id], g));
+    }
+  }
   const minX = Math.min(...pts.map((p) => p.x)), maxX = Math.max(...pts.map((p) => p.x)), minY = Math.min(...pts.map((p) => p.y)), maxY = Math.max(...pts.map((p) => p.y));
   const padX = 150, padY = 170;
   const w = Math.max(520, maxX - minX + padX * 2, (maxY - minY + padY * 2) * aspect), h = w / aspect;

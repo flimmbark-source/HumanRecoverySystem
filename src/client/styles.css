@@ -72,6 +72,7 @@ code{font-size:11px;background:#eef2ec;padding:1px 4px;border-radius:4px}
 .scope-tag text{font-size:9px;font-weight:750;fill:#8d6b37;letter-spacing:.4px}.internal-count{font-size:10px;fill:#47715b}
 .port{fill:#fff;stroke:#7fa392;stroke-width:1.6;cursor:crosshair}.port:hover,.port:focus-visible{fill:#dff0e4;stroke:#176b50;outline:none}
 .edgegroup{cursor:pointer}.edgegroup.selected .edgeLabel rect{filter:drop-shadow(0 2px 5px #0002)}
+.graph.labels-draggable .edgeLabel{cursor:grab}.graph.dragging-label,.graph.dragging-label *{cursor:grabbing}
 .edge-title{font-size:10.5px;font-weight:770;fill:#2f463c}.edge-sub{font-size:8.5px;font-weight:550;fill:#5d7166}
 .note-pin text{font-size:10px;font-weight:800;fill:#5f4a15}
 .dim{opacity:.22}.offroute{opacity:.38}.edgegroup.playing .edgepath{stroke-width:4.5}

@@ -221,6 +221,52 @@ test.describe('Map and spacing', () => {
     await expectCleanLabels(page);
   });
 
+  test('a connection label can be dragged, undone and saved with its branch', async ({ page }) => {
+    const id = await freshProject(page, 'Manual label placement');
+    const graph = page.getByTestId('graph');
+    const label = page.locator('[data-label-for="e2"]');
+    const original = await label.getAttribute('transform');
+    const revisions = `/projects/${id}/branches/baseline/revisions`;
+    const branch = `/projects/${id}/branches/baseline`;
+    const before = (await api(page, revisions)).revisions.length;
+
+    const pickUp = await label.evaluate((el) => {
+      const p = new DOMPoint().matrixTransform((el as SVGGElement).getScreenCTM()!);
+      return { x: p.x, y: p.y };
+    });
+    const drop = await graph.evaluate((el) => {
+      const p = new DOMPoint(545, 560).matrixTransform((el as SVGSVGElement).getScreenCTM()!);
+      return { x: p.x, y: p.y };
+    });
+    await page.mouse.move(pickUp.x, pickUp.y);
+    await page.mouse.down();
+    await page.mouse.move(drop.x, drop.y, { steps: 6 });
+    await expect(label).not.toHaveAttribute('transform', original!);
+    expect((await api(page, branch)).branch.layout.e2).toBeUndefined();
+    await page.mouse.up();
+    await expect(page.getByTestId('edge-lens')).toHaveCount(0);
+    const dropped = await label.evaluate((el) => {
+      const p = (el as SVGGElement).transform.baseVal.getItem(0).matrix;
+      return { x: p.e, y: p.f };
+    });
+    expect(Math.abs(dropped.x - 545)).toBeLessThan(3);
+    expect(Math.abs(dropped.y - 560)).toBeLessThan(3);
+    await expectCleanLabels(page);
+    await expect.poll(async () => (await api(page, branch)).branch.layout.e2).toBeDefined();
+
+    await page.getByRole('button', { name: 'Undo', exact: true }).click();
+    await expect(label).toHaveAttribute('transform', original!);
+    await expect.poll(async () => (await api(page, branch)).branch.layout.e2).toBeUndefined();
+    await page.getByRole('button', { name: 'Redo', exact: true }).click();
+    await expect.poll(async () => (await api(page, branch)).branch.layout.e2).toBeDefined();
+    const moved = await label.getAttribute('transform');
+    await page.reload();
+    await expect(label).toHaveAttribute('transform', moved!);
+    await label.click();
+    await expect(page.getByTestId('lens-title')).toHaveText('Triage application');
+    expect((await api(page, revisions)).revisions.length).toBe(before);
+  });
+
   test('long labels, dense links, dragging near a node, collision fallback and undoing Tidy', async ({ page }) => {
     const id = await freshProject(page, 'Dense map');
     // long label + every relationship type between the same few nodes

@@ -247,6 +247,7 @@ export function validateModel(input: unknown): { model?: Model; issues: Validati
   return issues.length ? { issues } : { model: m, issues: [] };
 }
 
+// Node IDs store canvas coordinates. Connection IDs store manual label offsets in the connection's frame.
 export type Layout = Record<string, { x: number; y: number }>;
 export const layoutSchema = z.record(idSchema, z.object({ x: finite, y: finite }));
 
