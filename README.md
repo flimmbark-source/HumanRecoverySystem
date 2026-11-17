@@ -20,6 +20,20 @@ tests/         unit, API (real PostgreSQL) and browser (Playwright) tests
 reference/     the original handoff, unchanged
 ```
 
+## Try Weave in GitHub Codespaces
+
+Open a codespace on a branch containing `.devcontainer/devcontainer.json`. If your codespace already exists, switch to that branch and run **Codespaces: Rebuild Container** from the Command Palette. The container installs Node and PostgreSQL, then runs `npm ci`.
+
+In the Codespaces terminal, run:
+
+```bash
+npm run codespace
+```
+
+Open **Ports → Weave (5173) → Open in Browser** and keep the port private. Sign in with `owner@weave.test` and `weave-demo-1`. The command creates an isolated database with the synthetic demo and starts the API and Vite. It applies migrations and seeds the demo on subsequent runs as needed. Run it again after the codespace restarts.
+
+Demo data lives in the ignored `.weave-codespace/` directory. This command uses that database even if you have an existing `.env`. To open a different database, use `npm run dev` with your existing `DATABASE_URL` after that database is running, then open the same forwarded port.
+
 ## Local setup
 
 Requires Node 22+ and PostgreSQL 14+.

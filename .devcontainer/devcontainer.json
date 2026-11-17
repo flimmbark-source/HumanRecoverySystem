@@ -1,0 +1,12 @@
+{
+  "name": "Weave Operational Studio",
+  "build": { "dockerfile": "Dockerfile" },
+  "remoteUser": "node",
+  "postCreateCommand": "npm ci",
+  "forwardPorts": [5173],
+  "portsAttributes": {
+    "5173": { "label": "Weave", "onAutoForward": "notify" },
+    "8787": { "onAutoForward": "ignore" },
+    "55432": { "onAutoForward": "ignore" }
+  }
+}
