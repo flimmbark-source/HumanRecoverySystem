@@ -22,17 +22,13 @@ reference/     the original handoff, unchanged
 
 ## Try Weave in GitHub Codespaces
 
-Open a codespace on a branch containing `.devcontainer/devcontainer.json`. If your codespace already exists, switch to that branch and run **Codespaces: Rebuild Container** from the Command Palette. The container installs Node and PostgreSQL, then runs `npm ci`.
+From this branch on GitHub, choose **Code → Codespaces → Create codespace**. Weave starts automatically on creation and when the Codespace resumes. If the browser tab does not open, use **Ports → Weave (5173) → Open in Browser**. Keep the port private.
 
-In the Codespaces terminal, run:
+**Demo login:** `owner@weave.test` / `weave-demo-1`.
 
-```bash
-npm run codespace
-```
+For an existing Codespace, pull this branch and run **Codespaces: Rebuild Container** once from the Command Palette. Back up any existing PostgreSQL data before rebuilding. If startup fails, check `.weave-codespace/app.log` and retry with `bash .devcontainer/start-weave.sh`.
 
-Open **Ports → Weave (5173) → Open in Browser** and keep the port private. Sign in with `owner@weave.test` and `weave-demo-1`. The command creates an isolated database with the synthetic demo and starts the API and Vite. It applies migrations and seeds the demo on subsequent runs as needed. Run it again after the codespace restarts.
-
-Demo data lives in the ignored `.weave-codespace/` directory. This command uses that database even if you have an existing `.env`. To open a different database, use `npm run dev` with your existing `DATABASE_URL` after that database is running, then open the same forwarded port.
+The demo database lives in the ignored `.weave-codespace/` directory. To use another database, create `.weave-codespace/no-autostart` before starting the Codespace, then run `npm run dev` with your existing `DATABASE_URL`. The manual foreground demo command is `npm run codespace`.
 
 ## Local setup
 
