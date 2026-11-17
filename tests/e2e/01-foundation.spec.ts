@@ -160,10 +160,66 @@ test.describe('Map and spacing', () => {
       const insp = await page.getByTestId('inspector').boundingBox();
       const actions = (await page.locator('.canvas-actions').boundingBox())!;
       if (w > 990) expect(overlaps(actions, insp!)).toBe(false); else expect(insp!.x >= view.width - 1 || insp!.y >= view.height - 1).toBe(true); // drawer closed: map fully usable
-      if (w <= 720) await page.locator('.legend-toggle').click();
+      const legend = page.getByTestId('legend');
+      const toggle = legend.getByRole('button');
+      if (w <= 720) await toggle.click();
       for (const t of ['flow', 'info', 'dependency', 'authority', 'association']) await expect(page.locator(`[data-legend="${t}"]`)).toBeVisible();
+      const expanded = (await legend.boundingBox())!;
+      await expect(toggle).toHaveAccessibleName('Collapse legend');
+      await toggle.press('Enter');
+      await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+      await expect(legend.getByRole('list')).toHaveCount(0);
+      expect((await legend.boundingBox())!.height).toBeLessThan(expanded.height);
+      if (w === 1440) {
+        await page.reload();
+        await expect(toggle).toHaveAccessibleName('Expand legend');
+      }
+      await toggle.click();
+      await expect(toggle).toHaveAttribute('aria-expanded', 'true');
     });
   }
+
+  test('connection labels keep their side during a node drag and settle after release', async ({ page }) => {
+    await freshProject(page, 'Steady connection labels');
+    const node = page.locator('[data-node="n4"]');
+    const fixedLabel = page.locator('[data-label-for="e2"]');
+    const originalNode = await node.getAttribute('transform');
+    const originalLabel = await fixedLabel.getAttribute('transform');
+    const offsets = () => page.locator('[data-edge="e5"], [data-edge="e6"]').evaluateAll((edges) => edges.map((edge) => {
+      const path = edge.querySelector('.edgepath')!.getAttribute('d')!.split(' ');
+      const [, ax, ay, , cx, cy, bx, by] = path.map(Number);
+      const label = (edge.querySelector('.edgeLabel') as SVGGElement).transform.baseVal.getItem(0).matrix;
+      const dx = label.e - (ax + 2 * cx + bx) / 4;
+      const dy = label.f - (ay + 2 * cy + by) / 4;
+      const angle = Math.atan2(by - ay, bx - ax);
+      return [dx * Math.cos(angle) + dy * Math.sin(angle), -dx * Math.sin(angle) + dy * Math.cos(angle)];
+    }));
+    const before = await offsets();
+    const rect = (await node.locator('.base').boundingBox())!;
+    await page.mouse.move(rect.x + rect.width / 2, rect.y + rect.height / 2);
+    await page.mouse.down();
+    const graph = page.getByTestId('graph');
+    for (const [x, y] of [[1050, 165], [945, 535], [485, 470]]) {
+      const screen = await graph.evaluate((svg, [x, y]) => {
+        const point = new DOMPoint(x, y).matrixTransform((svg as SVGSVGElement).getScreenCTM()!);
+        return { x: point.x, y: point.y };
+      }, [x, y]);
+      await page.mouse.move(screen.x, screen.y, { steps: 4 });
+      await expect(node).not.toHaveAttribute('transform', originalNode!);
+      const current = await offsets();
+      for (let i = 0; i < before.length; i++) {
+        expect(current[i][0]).toBeCloseTo(before[i][0], 4);
+        expect(current[i][1]).toBeCloseTo(before[i][1], 4);
+      }
+      await expect(fixedLabel).toHaveAttribute('transform', originalLabel!);
+    }
+    const labelBox = (await fixedLabel.locator('rect').boundingBox())!;
+    await page.mouse.move(labelBox.x + labelBox.width / 2, labelBox.y + labelBox.height / 2, { steps: 4 });
+    await expect(fixedLabel).toHaveAttribute('transform', originalLabel!);
+    await page.mouse.up();
+    await expect(fixedLabel).not.toHaveAttribute('transform', originalLabel!);
+    await expectCleanLabels(page);
+  });
 
   test('long labels, dense links, dragging near a node, collision fallback and undoing Tidy', async ({ page }) => {
     const id = await freshProject(page, 'Dense map');

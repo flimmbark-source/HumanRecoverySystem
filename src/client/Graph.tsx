@@ -3,7 +3,7 @@ import { canEdit, editLayout, getState, rememberView, select, setState, toast, u
 import { addEdge, addNode } from './ops';
 import { MOVE_SHARE, usePlay } from './play';
 import { EDGE_TYPES, EDGE_TYPE_HINT, EDGE_TYPE_LABEL, activityForEdge, fmtQty, type EdgeType, type Layout, type Model, type NodeKind, type WEdge, type WNode } from '../shared/model';
-import { NODE_H, edgeGeom, fitView, labelWidth, nodeW, placeLabels, pointAt, pos, resolveDrag, shortLabel, tidy, wrapNodeLabel, type ViewBox } from '../shared/layout';
+import { NODE_H, edgeGeom, fitView, followLabel, labelWidth, nodeW, placeLabels, pointAt, pos, resolveDrag, shortLabel, tidy, wrapNodeLabel, type LabelPoint, type ViewBox } from '../shared/layout';
 import { diffModels } from '../shared/diff';
 import { analyzeRoute } from '../shared/routes';
 
@@ -12,6 +12,15 @@ const DASH: Record<EdgeType, string> = { flow: '', info: '8 6', dependency: '2 6
 const LABEL_FILL: Record<EdgeType, string> = { flow: '#f1f6fc', info: '#eff9f5', dependency: '#fffaef', authority: '#f6f2fa', association: '#f4f5f6' };
 const PALETTE: Record<NodeKind, [string, string, string]> = { person: ['#e1f2e7', '#f6fbf7', '#8bc3a3'], system: ['#dbe9fa', '#f5f9fd', '#85abd1'], output: ['#f9ead2', '#fffbf4', '#d3a96a'], group: ['#eee7f6', '#faf8fd', '#ad99ca'], resource: ['#e5edef', '#f7fafb', '#9cafb8'] };
 export const KIND_ICON: Record<NodeKind, string> = { person: '◉', system: '▦', output: '◇', group: '❖', resource: '▤' };
+const LEGEND_KEY = 'weave:map-legend';
+
+function legendInitiallyOpen() {
+  try {
+    const saved = localStorage.getItem(LEGEND_KEY);
+    if (saved !== null) return saved === 'open';
+  } catch { /* Use the default if storage is blocked. */ }
+  return window.innerWidth > 720;
+}
 
 export function edgeSub(m: Model, e: WEdge): string {
   const a = activityForEdge(m, e.id);
@@ -53,8 +62,9 @@ export function Graph() {
   const svgRef = useRef<SVGSVGElement>(null), wrapRef = useRef<HTMLDivElement>(null);
   const [view, setView] = useState<ViewBox | null>(null);
   const [dragPos, setDragPos] = useState<{ id: string; x: number; y: number } | null>(null);
+  const [labelPreference, setLabelPreference] = useState<{ layout: Layout; positions: ReadonlyMap<string, LabelPoint> } | null>(null);
   const [linkPoint, setLinkPoint] = useState<{ x: number; y: number } | null>(null);
-  const [search, setSearch] = useState(''), [hideContext, setHideContext] = useState(false), [focusOnly, setFocusOnly] = useState(false), [legend, setLegend] = useState(() => window.innerWidth > 720);
+  const [search, setSearch] = useState(''), [hideContext, setHideContext] = useState(false), [focusOnly, setFocusOnly] = useState(false), [legend, setLegend] = useState(legendInitiallyOpen);
   const drag = useRef<any>(null), pointers = useRef(new Map<number, { x: number; y: number }>());
   const editable = canEdit() && mode !== 'timeline';
   const playStep = usePlay((p) => (mode === 'timeline' && p.steps ? Math.min(Math.floor(p.t), p.steps - 1) : -1));
@@ -62,7 +72,18 @@ export function Graph() {
   const aspect = () => { const el = wrapRef.current; return el ? Math.max(0.3, el.clientWidth / Math.max(1, el.clientHeight)) : 1.6; };
   const lay: Layout = useMemo(() => (dragPos ? { ...layout, [dragPos.id]: { x: dragPos.x, y: dragPos.y } } : layout), [layout, dragPos]);
   const visibleModel: Model = useMemo(() => (hideContext ? { ...model, nodes: model.nodes.filter((n) => n.scope !== 'context'), edges: model.edges.filter((e) => { const a = model.nodes.find((n) => n.id === e.from), b = model.nodes.find((n) => n.id === e.to); return a?.scope !== 'context' && b?.scope !== 'context'; }) } : model), [model, hideContext]);
-  const labels = useMemo(() => placeLabels(visibleModel, lay), [visibleModel, lay]);
+  const settledLabels = useMemo(() => placeLabels(visibleModel, layout, labelPreference?.layout === layout ? labelPreference.positions : undefined), [visibleModel, layout, labelPreference]);
+  const labels = useMemo(() => {
+    if (!dragPos) return settledLabels;
+    const positions = new Map<string, LabelPoint>(settledLabels);
+    for (const edge of visibleModel.edges) {
+      if (edge.from !== dragPos.id && edge.to !== dragPos.id) continue;
+      const label = settledLabels.get(edge.id);
+      const before = edgeGeom(edge, visibleModel, layout), after = edgeGeom(edge, visibleModel, lay);
+      if (label && before && after) positions.set(edge.id, followLabel(label, before, after));
+    }
+    return positions;
+  }, [dragPos, settledLabels, visibleModel, layout, lay]);
   const diff = useMemo(() => (mode === 'scenario' && compareModel && branchId !== 'baseline' ? diffModels(compareModel, model) : null), [mode, compareModel, model, branchId]);
 
   const keep = (v: ViewBox | null) => rememberView(v ? ({ ...v, a: aspect() } as ViewBox) : null);
@@ -149,8 +170,11 @@ export function Graph() {
     if (!d) return;
     if (d.type === 'pan') { if (!d.moved) select(null); else setView((v) => { keep(v); return v; }); }
     else if (d.type === 'node') {
-      if (d.moved && dragPos) { editLayout({ ...layout, [dragPos.id]: { x: dragPos.x, y: dragPos.y } }); setDragPos(null); }
-      else select({ type: 'node', id: d.id });
+      if (d.moved && dragPos) {
+        setLabelPreference({ layout: lay, positions: labels });
+        editLayout(lay);
+        setDragPos(null);
+      } else select({ type: 'node', id: d.id });
     } else if (d.type === 'link') {
       const p = toSvg(e.clientX, e.clientY);
       const dest = model.nodes.find((n) => n.id !== d.from && Math.abs(pos(layout, n.id).x - p.x) < nodeW(n) / 2 + 8 && Math.abs(pos(layout, n.id).y - p.y) < NODE_H / 2 + 8);
@@ -192,6 +216,10 @@ export function Graph() {
   const v = view ?? { x: 0, y: 0, w: 1200, h: 720 };
   const ghosts = diff && compareModel ? { edges: compareModel.edges.filter((e) => diff.removed.has(e.id)), nodes: compareModel.nodes.filter((n) => diff.removed.has(n.id)) } : null;
   const ghostLayout: Layout = ghosts ? { ...Object.fromEntries(compareModel!.nodes.map((n) => [n.id, pos(lay, n.id)])), ...lay } : lay;
+  const toggleLegend = () => {
+    setLegend(!legend);
+    try { localStorage.setItem(LEGEND_KEY, legend ? 'closed' : 'open'); } catch { /* The in-memory toggle still works. */ }
+  };
 
   return (
     <div className={`canvas-wrap${placing ? ' placing' : ''}`} ref={wrapRef}>
@@ -279,7 +307,10 @@ export function Graph() {
       {linkFrom && <div className="canvas-hint">Choose the destination node. Escape cancels.</div>}
 
       <div className={`canvas-legend${legend ? '' : ' closed'}`} data-testid="legend">
-        <button className="legend-toggle" onClick={() => setLegend(!legend)} aria-expanded={legend}>Legend</button>
+        <button type="button" className="legend-toggle" onClick={toggleLegend} aria-label={legend ? 'Collapse legend' : 'Expand legend'} aria-expanded={legend}>
+          Legend
+          <svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" /></svg>
+        </button>
         {legend && (<ul>
           {EDGE_TYPES.map((t) => (<li key={t} data-legend={t}><svg width="30" height="10" aria-hidden="true"><line x1="1" y1="5" x2="29" y2="5" stroke={TYPE_COLOR[t]} strokeWidth="2.6" strokeDasharray={DASH[t]} /></svg><span>{EDGE_TYPE_LABEL[t]}</span><em>{EDGE_TYPE_HINT[t]}</em></li>))}
           <li><svg width="30" height="12" aria-hidden="true"><rect x="2" y="1" width="26" height="10" rx="3" fill="#fff" stroke="#8bc3a3" strokeDasharray="4 3" /></svg><span>External</span><em>outside reviewed scope</em></li>

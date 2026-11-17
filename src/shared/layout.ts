@@ -45,9 +45,18 @@ export function labelWidth(text: string) { return Math.max(97, Math.min(text.len
 export const shortLabel = (s: string, max = 23) => (s.length > max ? s.slice(0, max - 1) + '…' : s);
 
 export interface PlacedLabel { edgeId: string; x: number; y: number; w: number; rect: Rect; collided: boolean }
+export type LabelPoint = Pick<PlacedLabel, 'x' | 'y'>;
+
+/** Carry the label's offset with the moving connection. The label itself stays upright. */
+export function followLabel(label: LabelPoint, from: EdgeGeom, to: EdgeGeom): LabelPoint {
+  const angle = Math.atan2(to.by - to.ay, to.bx - to.ax) - Math.atan2(from.by - from.ay, from.bx - from.ax);
+  const dx = label.x - from.mx, dy = label.y - from.my;
+  const cos = Math.cos(angle), sin = Math.sin(angle);
+  return { x: to.mx + dx * cos - dy * sin, y: to.my + dx * sin + dy * cos };
+}
 
 /** Collision-aware placement. Each label takes the cheapest free slot near its link; a leader keeps it legible when it must move away. */
-export function placeLabels(m: Model, layout: Layout): Map<string, PlacedLabel> {
+export function placeLabels(m: Model, layout: Layout, preferred?: ReadonlyMap<string, LabelPoint>): Map<string, PlacedLabel> {
   const placed = new Map<string, PlacedLabel>();
   const taken: Rect[] = [];
   const nodeRects = m.nodes.map((n) => nodeRect(n, layout, 6));
@@ -64,6 +73,8 @@ export function placeLabels(m: Model, layout: Layout): Map<string, PlacedLabel> 
       ? [[w / 2 + 32, 0], [-w / 2 - 32, 0], [w / 2 + 35, -55], [-w / 2 - 35, -55], [0, -78], [0, 78]]
       : horiz ? [[0, -84], [0, 88], [0, -124], [0, 128], [30, -84], [-30, -84], [0, -160], [0, 164]]
         : [[0, -70], [0, 70], [w / 2 + 38, 0], [-w / 2 - 38, 0], [0, -115], [0, 115], [w / 2 + 35, -55], [-w / 2 - 35, -55]];
+    const last = preferred?.get(e.id);
+    if (last) base.unshift([last.x - g.mx, last.y - g.my]);
     // fallback ring for dense graphs
     const ring: [number, number][] = [];
     for (const r of [170, 215, 265]) for (let k = 0; k < 12; k++) ring.push([Math.cos((k * Math.PI) / 6) * r * 1.25, Math.sin((k * Math.PI) / 6) * r]);
