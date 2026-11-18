@@ -64,11 +64,14 @@ async function run() {
   await p.locator('.modal').waitFor();
   // The dialog focuses its text box, which can open the keyboard, and Android sends Back to an open keyboard
   // first. So a second Back is allowed, never a third, and the page must still show the map.
+  // Counts the Escape key that the app's Back handler sends to the page, to tell where a Back press ended.
+  await p.evaluate(() => document.addEventListener('keydown', (e) => { if (e.key === 'Escape') (window as unknown as { escapes: number }).escapes = ((window as unknown as { escapes?: number }).escapes ?? 0) + 1; }, true));
+  const state = async () => `focus ${await p.evaluate(() => document.activeElement?.tagName)}, Escape sent ${await p.evaluate(() => (window as unknown as { escapes?: number }).escapes ?? 0)} times, keyboard: ${(await shell('dumpsys input_method | grep -iE "inputshown|imevisible|inputviewshown|showrequested" | head -4')).replace(/\s+/g, ' ').trim() || '(no match)'}`;
   for (let presses = 1; ; presses++) {
     await back();
     if (await p.locator('.modal').waitFor({ state: 'detached', timeout: 4_000 }).then(() => true, () => false)) break;
+    console.log(`  after Back ${presses} the dialog is open: ${await state()}`);
     if (presses === 2) throw new Error('Back did not close the dialog.');
-    console.log('  the first Back closed the keyboard');
   }
   await p.getByTestId('graph').waitFor();
 
