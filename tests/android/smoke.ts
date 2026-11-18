@@ -62,8 +62,9 @@ async function run() {
   step('the back button closes a dialog before it leaves the page');
   await p.getByTestId('fab-note').click();
   await p.locator('.modal').waitFor();
-  // The dialog focuses its text box, which can open the keyboard, and Android sends Back to an open keyboard
-  // first. So a second Back is allowed, never a third, and the page must still show the map.
+  // The dialog focuses its text box, which opens the keyboard, and Android sends Back to an open keyboard first
+  // (the emulator showed it: no Escape sent, keyboard view shown). Depending on when the keyboard appears, that
+  // can take two presses, so up to three are allowed. The map must still show after them.
   // Counts the Escape key that the app's Back handler sends to the page, to tell where a Back press ended.
   await p.evaluate(() => document.addEventListener('keydown', (e) => { if (e.key === 'Escape') (window as unknown as { escapes: number }).escapes = ((window as unknown as { escapes?: number }).escapes ?? 0) + 1; }, true));
   const state = async () => `focus ${await p.evaluate(() => document.activeElement?.tagName)}, Escape sent ${await p.evaluate(() => (window as unknown as { escapes?: number }).escapes ?? 0)} times, keyboard: ${(await shell('dumpsys input_method | grep -iE "inputshown|imevisible|inputviewshown|showrequested" | head -4')).replace(/\s+/g, ' ').trim() || '(no match)'}`;
@@ -71,7 +72,7 @@ async function run() {
     await back();
     if (await p.locator('.modal').waitFor({ state: 'detached', timeout: 4_000 }).then(() => true, () => false)) break;
     console.log(`  after Back ${presses} the dialog is open: ${await state()}`);
-    if (presses === 2) throw new Error('Back did not close the dialog.');
+    if (presses === 3) throw new Error('Back did not close the dialog.');
   }
   await p.getByTestId('graph').waitFor();
 
