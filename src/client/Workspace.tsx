@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { canEdit, closeModal, discardRecovered, fail, flush, getState, loadBranch, loadProject, openModal, resolveKeepMine, resolveUseTheirs, restoreRecovered, saveNow, setMode, setNav, setState, signOut, startInsight, useStore, type Mode, type Nav } from './store';
 import { addEdge, addNode } from './ops';
 import { Graph } from './Graph';
@@ -42,6 +42,43 @@ function ConnectModal() {
       <Field label="Type"><select value={type} onChange={(e) => setType(e.target.value as EdgeType)} data-testid="connect-type">{EDGE_TYPES.map((t) => <option key={t} value={t}>{EDGE_TYPE_LABEL[t]}</option>)}</select></Field>
       <Field label="Short label"><input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="e.g. Triage application" data-testid="connect-label" onKeyDown={(e) => e.key === 'Enter' && add()} /></Field>
     </Modal>
+  );
+}
+
+const branchLabel = (b: { kind: string; name: string }) => (b.kind === 'baseline' ? 'Baseline' : `Scenario: ${b.name}`);
+
+/** Top left: shows the map version in use and opens a menu to switch version or go back to all projects. */
+function ProjectMenu() {
+  const project = useStore((s) => s.project)!, branches = useStore((s) => s.branches), branchId = useStore((s) => s.branchId);
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const away = (e: PointerEvent) => { if (!ref.current?.contains(e.target as Node)) setOpen(false); };
+    const key = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('pointerdown', away); document.addEventListener('keydown', key);
+    return () => { document.removeEventListener('pointerdown', away); document.removeEventListener('keydown', key); };
+  }, [open]);
+  const current = branches.find((b) => b.id === branchId);
+  return (
+    <div className="projmenu" ref={ref}>
+      <button className="projmenu-btn" aria-haspopup="menu" aria-expanded={open} data-testid="branch-select" onClick={() => setOpen(!open)}>
+        <span aria-hidden="true">☰</span><span className="projmenu-label">{current ? branchLabel(current) : 'Baseline'}</span>
+      </button>
+      {open && (
+        // data-back-closes: the Android Back button closes the menu first.
+        <div className="projmenu-pop" role="menu" data-back-closes="" data-testid="project-menu">
+          <a className="projmenu-item home" role="menuitem" href="#/" data-testid="menu-projects" onClick={() => { void flush(); setOpen(false); }}>← All projects</a>
+          <div className="projmenu-head"><span className="kicker">Project</span><b>{project.name}</b></div>
+          <span className="kicker projmenu-kicker">Map version</span>
+          {branches.map((b) => (
+            <button key={b.id} role="menuitemradio" aria-checked={b.id === branchId} className={`projmenu-item${b.id === branchId ? ' current' : ''}`} data-branch={b.id}
+              onClick={() => { setOpen(false); if (b.id !== branchId) loadBranch(b.id).catch(fail); }}>{b.id === branchId ? '✓ ' : ''}{branchLabel(b)}</button>
+          ))}
+          {!onDevice && <button role="menuitem" className="projmenu-item" onClick={signOut}>Sign out</button>}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -89,9 +126,7 @@ export function Workspace({ pid }: { pid: string }) {
       </nav>
       <div className="center">
         <header className="topbar">
-          <select className="branch-select" value={branchId} aria-label="Baseline or scenario" data-testid="branch-select" onChange={(e) => loadBranch(e.target.value).catch(fail)}>
-            {branches.map((b) => <option key={b.id} value={b.id}>{b.kind === 'baseline' ? 'Baseline' : `Scenario: ${b.name}`}</option>)}
-          </select>
+          <ProjectMenu />
           {nav === 'map' && (<div className="modegroup" role="tablist" aria-label="Map mode">{MODES.map(([k, label]) => <button key={k} role="tab" aria-selected={mode === k} className={`mode${mode === k ? ' active' : ''}`} onClick={() => setMode(k)} data-testid={`mode-${k}`}>{label}</button>)}</div>)}
           <span className="spacer" />
           <SaveStatus />

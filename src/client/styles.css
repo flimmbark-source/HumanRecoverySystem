@@ -53,7 +53,10 @@ code{font-size:11px;background:#eef2ec;padding:1px 4px;border-radius:4px}
 .left-bottom{margin-top:auto;padding:14px 16px;display:flex;flex-direction:column;gap:4px;border-top:1px solid var(--line)}
 .center{display:flex;flex-direction:column;min-width:0;min-height:0}
 .topbar{display:flex;align-items:center;gap:9px;padding:0 14px;height:56px;flex-shrink:0;background:var(--paper);border-bottom:1px solid var(--line);position:relative;z-index:12}
-.branch-select{width:auto;max-width:230px;font-weight:700}
+.projmenu{position:relative;min-width:0}.projmenu-btn{max-width:260px;font-weight:700;gap:8px}.projmenu-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.projmenu-pop{position:absolute;left:0;top:44px;z-index:30;background:#fff;border:1px solid var(--line);border-radius:12px;box-shadow:0 12px 34px #1c322d26;padding:6px;display:grid;gap:2px;min-width:250px;max-width:min(340px,calc(100vw - 16px));max-height:70vh;overflow:auto}
+.projmenu-item{border:0;background:none;justify-content:flex-start;text-align:left;white-space:normal;font-weight:600;padding:9px 10px;border-radius:8px;text-decoration:none;color:var(--ink);display:flex;align-items:center;min-height:40px}.projmenu-item:hover{background:#f1f5ef}.projmenu-item.current{background:var(--lightgreen);color:#1f4c3e}.projmenu-item.home{font-weight:750;color:#2e6150}
+.projmenu-head{display:grid;gap:2px;padding:8px 10px;border-top:1px solid var(--line);margin-top:4px}.projmenu-kicker{padding:6px 10px 2px}
 .modegroup{display:flex;background:#eef2ec;border-radius:10px;padding:3px}.mode{border:0;background:none;padding:6px 11px;min-height:28px;border-radius:8px;color:#5a6f64}.mode.active{background:#fff;color:var(--ink);box-shadow:0 1px 3px #0002}
 .savestate{font-size:11px;color:var(--muted);white-space:nowrap;display:flex;gap:6px;align-items:center}.savestate.saved:before{content:'✓';color:#3f8a69}.savestate.failed,.savestate.conflict{color:var(--red);font-weight:700}
 .sessionbar{font-size:11px;color:#3c6551;border-color:#d9e7db;background:#f3f8f3;max-width:170px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block}
@@ -206,7 +209,7 @@ details.plain{margin:10px 0}details.plain>summary{cursor:pointer;font-weight:700
  .center{flex:1;order:1}
  .left{order:2;flex-direction:row;border-right:0;border-top:1px solid var(--line);overflow:visible;flex-shrink:0;z-index:20}.left .brand{display:none}
  .navlist{display:flex;flex:1;padding:3px;gap:0;justify-content:space-around}.navlist li{flex:1}.navbtn{flex-direction:column;gap:1px;padding:6px 0;font-size:9.5px;min-height:46px}.left .navlabel{display:block}.navicon{font-size:16px}
- .topbar{height:52px;padding:0 8px;gap:6px}.branch-select{max-width:104px;padding:5px}.mode{padding:6px 7px;font-size:11px}.savestate{font-size:0;gap:0}.savestate:before{font-size:13px}.savestate.failed,.savestate.conflict,.savestate.dirty,.savestate.saving{font-size:10px}.sessionbar{max-width:38px;font-size:0;padding:6px}.sessionbar:before{content:'◎';font-size:15px}
+ .topbar{height:52px;padding:0 8px;gap:6px}.projmenu-btn{max-width:150px;padding:6px 9px}.mode{padding:6px 7px;font-size:11px}.savestate{font-size:0;gap:0}.savestate:before{font-size:13px}.savestate.failed,.savestate.conflict,.savestate.dirty,.savestate.saving{font-size:10px}.sessionbar{max-width:38px;font-size:0;padding:6px}.sessionbar:before{content:'◎';font-size:15px}
  .right{top:auto;left:0;right:0;width:100%;height:78dvh;border-radius:16px 16px 0 0;transform:translateY(105%);border-left:0}.right.open{transform:none}
  .canvas-legend{bottom:10px;left:8px}.canvas-legend:not(.closed){bottom:56px}.canvas-actions{right:8px;bottom:10px}.addwrap>.primary{font-size:0;gap:0;padding:7px 11px}.addwrap>.primary:before{content:'+';font-size:16px}
  .canvas-tools{left:8px;top:8px}.canvas-tools input[type=search]{width:104px}.map-tools{right:8px;top:8px}.insight-bar{left:8px;right:8px;width:auto}
@@ -248,7 +251,7 @@ details.plain{margin:10px 0}details.plain>summary{cursor:pointer;font-weight:700
 /* small phones: the map modes get a row of their own, so the top bar never runs off the screen */
 @media (max-width:560px){
  .topbar{flex-wrap:wrap;height:auto;min-height:52px;padding:6px 8px}
- .branch-select{max-width:58%}
+ .projmenu{max-width:62%}.projmenu-btn{max-width:100%}
  .modegroup{order:1;flex:1 0 100%}.mode{flex:1}
  /* the collapsed legend shares the bottom row with the map controls; the open legend sits above them */
  .canvas-legend.closed{bottom:10px;padding:3px}.canvas-legend.closed .legend-toggle{padding:4px 8px}.canvas-legend:not(.closed){bottom:62px}

@@ -63,3 +63,9 @@ export async function newInsight(page: Page, text: string) {
   await expect(page.getByTestId('insight-bar')).toHaveCount(0);
   await page.getByTestId('nav-insights').click();
 }
+/** Switches the map version through the menu at the top left. */
+export async function chooseBranch(page: Page, label: string) {
+  await page.getByTestId('branch-select').click();
+  await page.getByTestId('project-menu').getByRole('menuitemradio', { name: label }).click();
+  await expect(page.getByTestId('branch-select')).toContainText(label);
+}
