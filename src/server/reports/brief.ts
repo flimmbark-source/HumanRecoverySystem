@@ -5,19 +5,18 @@ import { one } from '../db';
 import { getBranches, getRevision, listCollection } from '../store';
 import { compare, computeEffort, computeElapsed, fmtDelta, fmtFigure, type Figure } from '../../shared/impact';
 import { describeEdge } from '../../shared/sentence';
-import { evidenceForOpportunity, EVIDENCE_LEVEL_LABEL, insightTitle } from '../../shared/evidence';
+import { decisionHeading, evidenceForOpportunity, EVIDENCE_LEVEL_LABEL } from '../../shared/evidence';
 import { EDGE_TYPE_LABEL, type Layout, type Model } from '../../shared/model';
-import { OPTION_KIND_LABEL, type DecisionOption, type EvidenceLink, type Insight, type Note, type Opportunity, type Source } from '../../shared/workspace';
+import { OPTION_KIND_LABEL, type DecisionOption, type EvidenceLink, type Note, type Opportunity, type Source } from '../../shared/workspace';
 
 export interface BriefObservation { relation: string; kind: string; certainty: string; text: string | null; source: string }
 export interface BriefComparisonLine { label: string; baseline: string; proposed: string; change: string; note: string }
 export interface BriefRecommendation {
-  id: string; title: string; heading: string; isHypothesis: boolean; decisionState: string; evidenceLevel: string; stale: boolean;
-  insights: { title: string; body: string }[];
+  id: string; title: string; heading: string; isHypothesis: boolean; evidenceLevel: string; sourceCount: number; stale: boolean;
   observations: BriefObservation[]; interpretation: string; gaps: string[];
   preserve: string; stakeholders: string; validationPlan: string; closeReason: string;
   option: (Omit<DecisionOption, 'id' | 'opportunityId' | 'scenarioBranchId'> & { kindLabel: string }) | null;
-  alternatives: { kindLabel: string; title: string; benefits: string; downsides: string; confidence: string }[];
+  alternatives: { kindLabel: string; title: string; benefits: string; downsides: string; confidence: string; withinPilotScope: boolean }[];
   comparison: null | {
     scenarioName: string; pinnedTo: string; lines: BriefComparisonLine[]; unverified: boolean;
     cash: string[]; humanEffects: { role: string; kind: string; direction: string; description: string; magnitude: string; validation: string }[];
@@ -56,8 +55,8 @@ export async function buildBrief(db: Db, pid: string): Promise<Brief> {
   const base = branches.find((b) => b.kind === 'baseline')!;
   const head = await getRevision(db, pid, base.headRevisionId);
   const m = head.model;
-  const [sources, notes, insights, links, opportunities, options] = await Promise.all([
-    listCollection<Source>(db, pid, 'sources'), listCollection<Note>(db, pid, 'notes'), listCollection<Insight>(db, pid, 'insights'),
+  const [sources, notes, links, opportunities, options] = await Promise.all([
+    listCollection<Source>(db, pid, 'sources'), listCollection<Note>(db, pid, 'notes'),
     listCollection<EvidenceLink>(db, pid, 'links'), listCollection<Opportunity>(db, pid, 'opportunities'), listCollection<DecisionOption>(db, pid, 'options'),
   ]);
   const effort = computeEffort(m);
@@ -76,14 +75,14 @@ export async function buildBrief(db: Db, pid: string): Promise<Brief> {
   for (const o of ordered) {
     const ev = evidenceForOpportunity(o, notes, links);
     const opts = options.filter((x) => x.opportunityId === o.id);
-    const chosen = opts.find((x) => x.id === o.recommendedOptionId) ?? null;
+    const chosen = opts.find((x) => x.id === o.recommendedOptionId);
     const observations: BriefObservation[] = [...ev.supporting, ...ev.contradicting, ...ev.other].map((l) => {
       if (!l.note.excerptApproved) withheldNotes++;
       return { relation: l.relation, kind: l.note.kind, certainty: l.note.certainty ?? 'not recorded', text: l.note.excerptApproved ? l.note.text : null, source: sourceLabel(l.note.sourceId) };
     });
     let comparison: BriefRecommendation['comparison'] = null, stale = false;
     const sc = chosen?.scenarioBranchId ? branches.find((b) => b.id === chosen.scenarioBranchId) : null;
-    if (sc && sc.baseRevisionId) {
+    if (chosen && sc?.baseRevisionId) {
       const pinned = await getRevision(db, pid, sc.baseRevisionId), scen = await getRevision(db, pid, sc.headRevisionId);
       stale = !!o.citedRevisions[sc.id] && o.citedRevisions[sc.id] !== sc.headRevisionId;
       const routeId = scen.model.routes[0]?.id ?? pinned.model.routes[0]?.id ?? null;
@@ -104,7 +103,7 @@ export async function buildBrief(db: Db, pid: string): Promise<Brief> {
         ...f.issues,
       ];
       comparison = {
-        scenarioName: sc.name, pinnedTo: `baseline revision ${pinned.seq} (${pinned.createdAt.slice(0, 10)})`, lines, unverified: c.unverifiedInputs, cash,
+        scenarioName: sc.origin?.type === 'insight' ? chosen.title : sc.name, pinnedTo: `baseline revision ${pinned.seq} (${pinned.createdAt.slice(0, 10)})`, lines, unverified: c.unverifiedInputs, cash,
         humanEffects: a.humanEffects.map((h) => ({ role: h.role, kind: h.kind.replace(/_/g, ' '), direction: h.direction, description: h.description, magnitude: h.magnitude && h.magnitude.value !== null ? `${h.magnitude.value} ${h.magnitude.unit} (${h.magnitude.basis})` : `Not quantified${h.missingData ? ` — missing: ${h.missingData}` : ''}`, validation: h.validation })),
         guardrails: a.guardrails.map((g) => ({ metric: g.metric, detail: [g.denominator && `per ${g.denominator}`, g.baselinePeriod && `baseline period ${g.baselinePeriod}`, g.baseline && g.baseline.value !== null ? `baseline ${g.baseline.value} ${g.baseline.unit}` : 'baseline not yet measured', g.target && `target ${g.target}`, g.owner && `owner ${g.owner}`, g.method && `collected by ${g.method}`, g.followUp && `review ${g.followUp}`, g.rollbackTrigger && `roll back if ${g.rollbackTrigger}`].filter(Boolean).join(' · ') })),
         workingConditions: a.workingConditions.map((w) => ({ role: w.role, indicator: w.indicator, baseline: w.baseline || 'Unknown', expected: w.expected || 'Unknown', basis: w.basis })),
@@ -112,20 +111,18 @@ export async function buildBrief(db: Db, pid: string): Promise<Brief> {
         preserve: a.preserve, reversal: a.reversal, unknowns: a.unknowns, validation: a.validation,
       };
     }
-    const isHyp = ev.isHypothesis || o.decisionState === 'hypothesis';
-    const heading = o.decisionState === 'closed' ? 'Closed' : o.decisionState === 'deferred' ? 'Deferred' : !chosen ? 'Opportunity under exploration' : isHyp ? 'Hypothesis to test' : 'Recommendation';
+    const heading = decisionHeading(o, chosen, ev);
     const { id: _i, opportunityId: _o, scenarioBranchId: _s, version: _v, ...optRest } = (chosen ?? {}) as DecisionOption & { version?: number };
     recommendations.push({
-      id: o.id, title: o.title, heading, isHypothesis: isHyp, decisionState: o.decisionState, evidenceLevel: EVIDENCE_LEVEL_LABEL[ev.level], stale,
-      insights: o.insightIds.map((id) => insights.find((i) => i.id === id)).filter((i): i is Insight & { version: number } => !!i).map((i) => ({ title: insightTitle(i), body: i.body })),
-      observations, interpretation: o.interpretation, gaps: [...ev.gaps, ...(o.uncertainty.trim() ? [o.uncertainty.trim()] : [])],
+      id: o.id, title: o.reportTitle?.trim() || `Opportunity ${recommendations.length + 1}`, heading, isHypothesis: heading === 'Hypothesis to test', evidenceLevel: EVIDENCE_LEVEL_LABEL[ev.level], sourceCount: ev.sourceCount, stale,
+      observations, interpretation: o.interpretation.trim(), gaps: [...ev.gaps, ...(o.uncertainty.trim() ? [o.uncertainty.trim()] : [])],
       preserve: o.preserve, stakeholders: o.stakeholders, validationPlan: o.validationPlan, closeReason: o.closeReason,
       option: chosen ? { ...optRest, kindLabel: OPTION_KIND_LABEL[chosen.kind] } : null,
-      alternatives: opts.filter((x) => x.id !== chosen?.id).map((x) => ({ kindLabel: OPTION_KIND_LABEL[x.kind], title: x.title, benefits: x.benefits, downsides: x.downsides, confidence: x.confidence })),
+      alternatives: opts.filter((x) => x.id !== chosen?.id).map((x) => ({ kindLabel: OPTION_KIND_LABEL[x.kind], title: x.title, benefits: x.benefits, downsides: x.downsides, confidence: x.confidence, withinPilotScope: x.withinPilotScope })),
       comparison,
     });
   }
-  const withheld: string[] = ['Researcher working notes and internal comments are not included.', 'Participant roles attached to individual sources are not included; findings are stated at workflow or role level.'];
+  const withheld: string[] = ['Interpretations come from the summary written for this decision.', 'Participant roles attached to individual sources are not included; findings are stated at workflow or role level.'];
   if (withheldNotes) withheld.push(`${withheldNotes} linked observation${withheldNotes === 1 ? ' is' : 's are'} summarized by type only because the excerpt is not approved for export.`);
   if (withheldSources) withheld.push('Some source IDs are withheld because they are not approved for citation.');
 

@@ -1,0 +1,138 @@
+# Builds the Android app, runs it in an Android 15 emulator, and publishes it as a GitHub release.
+# The latest APK is always at releases/latest/download/Weave.apk.
+name: Android app
+
+on:
+  push:
+    branches: [main, fix/weave-pilot-decisions]
+    paths:
+      - 'src/**'
+      - 'android/**'
+      - 'migrations/**'
+      - 'assets/**'
+      - 'reference/handoff/**'
+      - 'tests/android/**'
+      - 'tests/api/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'vite.device.config.ts'
+      - 'vitest.pglite.config.ts'
+      - '.github/workflows/android.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.apk.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # the version code counts commits
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - name: API tests on the database that the app carries (PGlite)
+        run: npm run test:pglite
+      - run: npm run build:device
+      - name: Install the Android SDK packages
+        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.0" > /dev/null
+      - name: Build the APKs
+        id: apk
+        run: |
+          export ANDROID_JAR="$ANDROID_HOME/platforms/android-35/android.jar" BUILD_TOOLS="$ANDROID_HOME/build-tools/35.0.0"
+          mkdir -p out
+          WEAVE_DEBUGGABLE=1 android/build.sh && mv android/build/Weave.apk out/Weave-debuggable.apk
+          android/build.sh && mv android/build/Weave.apk out/Weave.apk
+          echo "version=$("$BUILD_TOOLS/aapt2" dump badging out/Weave.apk | sed -n "s/.*versionName='\([^']*\)'.*/\1/p")" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: apk
+          path: out/
+          if-no-files-found: error
+
+  emulator:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - uses: actions/download-artifact@v4
+        with:
+          name: apk
+          path: out
+      - name: Enable KVM for the emulator
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Download the Android 15 system image
+        # This large download sometimes stops early. A retry keeps a network fault from failing the test.
+        run: |
+          image="$ANDROID_HOME/system-images/android-35/google_apis/x86_64"
+          for attempt in 1 2 3; do
+            yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "system-images;android-35;google_apis;x86_64" > /dev/null || true
+            if [ -f "$image/system.img" ]; then exit 0; fi
+            sleep 15
+          done
+          exit 1
+      - name: Run the app in an Android 15 emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          script: node --import tsx tests/android/smoke.ts out/Weave-debuggable.apk
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: android-smoke
+          path: android-smoke/
+
+  release:
+    needs: [build, emulator]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: apk
+          path: out
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          tag="android-$VERSION"
+          cat > notes.md <<EOF
+          **Install on an Android phone (Android 8 or later)**
+          1. On the phone, download **Weave.apk** below.
+          2. Open the downloaded file. If Android asks, let your browser install unknown apps.
+          3. Open Weave. Your projects stay on this phone. To keep a copy, use **Project → Backup and transfer**.
+
+          To update, install a newer APK over the installed app. Your data stays. Install updates only from this page.
+
+          Built from ${GITHUB_SHA::7} on ${GITHUB_REF_NAME}. It ran in an Android 15 emulator before this release.
+          EOF
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            gh release upload "$tag" out/Weave.apk --clobber --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$tag" out/Weave.apk --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "Weave for Android $VERSION" --notes-file notes.md
+          fi

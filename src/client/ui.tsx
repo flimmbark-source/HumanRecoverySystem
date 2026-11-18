@@ -60,6 +60,24 @@ export function QtyInput({ label, q, onChange, scale = 1, unitLabel, disabled, t
   );
 }
 
+/** The device build: the API runs in this app with one account, so there is no sign-out and no sharing. */
+export const onDevice = import.meta.env.MODE === 'device';
+
+/** Saves a file: through the Android app when Weave runs in it (a WebView cannot download), else as a download. */
+export async function saveFile(blob: Blob, name: string) {
+  const android = (window as { WeaveAndroid?: { saveFile(name: string, type: string, base64: string): void } }).WeaveAndroid;
+  if (android) {
+    const dataUrl = await new Promise<string>((resolve, reject) => { const r = new FileReader(); r.onload = () => resolve(r.result as string); r.onerror = () => reject(r.error); r.readAsDataURL(blob); });
+    android.saveFile(name, blob.type || 'application/octet-stream', dataUrl.slice(dataUrl.indexOf(',') + 1));
+    return;
+  }
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 60_000);
+}
+
 export const fmtMinutes = (min: number | null) => (min === null ? 'Unknown' : min >= 90 ? `${Math.round((min / 60) * 10) / 10} h` : `${Math.round(min * 10) / 10} min`);
 export const when = (iso: string | null | undefined) => (iso ? new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : '');
 export function Empty({ title, children }: { title: string; children?: ReactNode }) { return <div className="empty"><b>{title}</b><p>{children}</p></div>; }

@@ -1,4 +1,4 @@
-import { expect, type Page } from '@playwright/test';
+import { expect, type Locator, type Page } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 
 export const PASSWORD = 'weave-demo-1';
@@ -53,4 +53,24 @@ export async function expectCleanLabels(page: Page) {
   }
   expect(problems).toEqual([]);
   return { labels, nodes };
+}
+/** Writes a text-only insight on the Insights page. It is left open. */
+export async function newInsight(page: Page, text: string) {
+  await page.getByTestId('nav-insights').click();
+  await page.getByTestId('insight-new').click();
+  await page.getByTestId('insight-new-text').fill(text);
+  await page.getByTestId('insight-new-save').click();
+  await expect(page.getByTestId('insight-new-form')).toHaveCount(0);
+}
+/** Opens an insight box and its Edit view, where evidence, opportunities and scenarios live. */
+export async function editInsight(insight: Locator) {
+  if ((await insight.getAttribute('data-expanded')) !== 'true') await insight.getByTestId('insight-toggle').click();
+  if (!(await insight.getByTestId('insight-editor').count())) await insight.getByTestId('insight-edit').click();
+  await expect(insight.getByTestId('insight-editor')).toBeVisible();
+}
+/** Switches the map version through the menu at the top left. */
+export async function chooseBranch(page: Page, label: string) {
+  await page.getByTestId('branch-select').click();
+  await page.getByTestId('project-menu').getByRole('menuitemradio', { name: label }).click();
+  await expect(page.getByTestId('branch-select')).toContainText(label);
 }

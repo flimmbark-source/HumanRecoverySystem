@@ -1,0 +1,14 @@
+{
+  "name": "Weave Operational Studio",
+  "build": { "dockerfile": "Dockerfile" },
+  "remoteUser": "node",
+  "postCreateCommand": "npm ci",
+  "postStartCommand": ["bash", ".devcontainer/start-weave.sh"],
+  "waitFor": "postStartCommand",
+  "forwardPorts": [5173],
+  "portsAttributes": {
+    "5173": { "label": "Weave", "onAutoForward": "openBrowserOnce" },
+    "8787": { "onAutoForward": "ignore" },
+    "55432": { "onAutoForward": "ignore" }
+  }
+}

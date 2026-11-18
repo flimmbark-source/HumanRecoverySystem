@@ -26,5 +26,7 @@ export const config = {
   runWorker: (process.env.RUN_WORKER ?? '1') === '1',
   jobPollMs: int('JOB_POLL_MS', 2000),
   allowDbReset: process.env.ALLOW_DB_RESET === '1',
+  // Whether a request may bring its own Claude key (the phone app, where the key is saved on the phone).
+  userKeys: false,
 };
 if (production && !config.sessionSecret) throw new Error('SESSION_SECRET is required in production');

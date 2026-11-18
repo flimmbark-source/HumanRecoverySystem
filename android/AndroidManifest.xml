@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- No INTERNET permission: the app, its API and its database run on the phone, and the data stays there.
+     Links to web pages open in the browser. allowBackup is off, so research notes are not copied to a cloud
+     backup without a decision. Use Project > Backup and transfer to keep a copy. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="io.github.flimmbark_source.weave">
+    <application
+        android:label="@string/app_name"
+        android:icon="@mipmap/ic_launcher"
+        android:theme="@style/Weave"
+        android:allowBackup="false"
+        android:supportsRtl="true">
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|uiMode|fontScale|locale|layoutDirection"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

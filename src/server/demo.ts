@@ -32,6 +32,6 @@ export function blankBundle(meta: Bundle['project'], startLabel: string, outcome
     format: WORKSPACE_FORMAT, schemaVersion: WORKSPACE_SCHEMA_VERSION, exportedAt: now, project: meta,
     branches: [{ id: 'baseline', kind: 'baseline', name: 'Baseline', hypothesis: '', parentBranchId: null, baseRevisionId: null, headRevisionId: 'rev-1', layout: { n1: { x: 300, y: 350 }, n2: { x: 760, y: 350 } }, origin: null, status: 'draft', createdAt: now }],
     revisions: [{ id: 'rev-1', branchId: 'baseline', parentRevisionId: null, seq: 1, summary: 'Project created', author: '', createdAt: now, restoredFrom: null, model }],
-    sources: [], notes: [], insights: [], links: [], opportunities: [], options: [], runs: [], candidates: [],
+    sources: [], notes: [], insights: [], links: [], opportunities: [], options: [], runs: [], candidates: [], imports: [],
   };
 }

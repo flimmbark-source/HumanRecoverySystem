@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { HttpError, type User } from './auth';
 import { one, q, type Db } from './db';
 import { newId, validateModel, type Layout, type Model } from '../shared/model';
-import { linkSchema, noteSchema, insightSchema, opportunitySchema, optionSchema, sourceSchema, WORKSPACE_FORMAT, WORKSPACE_SCHEMA_VERSION, type Bundle, type ProjectMeta } from '../shared/workspace';
+import { importSchema, linkSchema, noteSchema, insightSchema, opportunitySchema, optionSchema, sourceSchema, WORKSPACE_FORMAT, WORKSPACE_SCHEMA_VERSION, type Bundle, type ProjectMeta } from '../shared/workspace';
 
 export interface BranchRow { id: string; kind: 'baseline' | 'scenario'; name: string; hypothesis: string; parentBranchId: string | null; baseRevisionId: string | null; headRevisionId: string; layout: Layout; layoutVersion: number; origin: { type: string; id: string | null } | null; status: string; createdAt: string }
 export interface RevisionRow { id: string; branchId: string; parentRevisionId: string | null; seq: number; summary: string; author: string; createdAt: string; restoredFrom: string | null; model: Model }
@@ -67,6 +67,7 @@ export async function createBranch(c: pg.PoolClient, pid: string, user: User | n
 export const COLLECTIONS = {
   sources: { schema: sourceSchema, prefix: 'src' }, notes: { schema: noteSchema, prefix: 't' }, insights: { schema: insightSchema, prefix: 'in' },
   links: { schema: linkSchema, prefix: 'l' }, opportunities: { schema: opportunitySchema, prefix: 'op' }, options: { schema: optionSchema, prefix: 'o' },
+  imports: { schema: importSchema, prefix: 'im' },
 } as const;
 export type CollectionName = keyof typeof COLLECTIONS;
 export const isCollection = (s: string): s is CollectionName => s in COLLECTIONS;
@@ -155,7 +156,7 @@ export async function writeBundle(c: pg.PoolClient, pid: string, user: User | nu
     await c.query(`INSERT INTO revisions (project_id, id, branch_id, parent_revision_id, seq, summary, model, restored_from, author, created_by, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10, COALESCE($11::timestamptz, now()))`,
       [pid, r.id, r.branchId, r.parentRevisionId, r.seq, r.summary, JSON.stringify(r.model), r.restoredFrom, r.author || 'import', user?.id ?? null, r.createdAt || null]);
   }
-  const docs: [CollectionName, { id: string }[]][] = [['sources', b.sources], ['notes', b.notes], ['insights', b.insights], ['links', b.links], ['opportunities', b.opportunities], ['options', b.options]];
+  const docs: [CollectionName, { id: string }[]][] = [['sources', b.sources], ['imports', b.imports], ['notes', b.notes], ['insights', b.insights], ['links', b.links], ['opportunities', b.opportunities], ['options', b.options]];
   for (const [name, list] of docs) for (const d of list) await c.query(`INSERT INTO ${name} (project_id, id, data, created_by) VALUES ($1, $2, $3, $4)`, [pid, d.id, JSON.stringify(d), user?.id ?? null]);
   for (const r of b.runs) {
     // Imported runs are history only; anything unfinished is recorded as cancelled so it is never executed here.
@@ -193,6 +194,6 @@ export async function exportBundle(db: Db, pid: string): Promise<Bundle> {
     branches: branches.map(({ layoutVersion: _lv, ...b }) => ({ ...b, origin: b.origin as any, status: b.status as any })),
     revisions, sources: strip(await listCollection(db, pid, 'sources')), notes: strip(await listCollection(db, pid, 'notes')), insights: strip(await listCollection(db, pid, 'insights')),
     links: strip(await listCollection(db, pid, 'links')), opportunities: strip(await listCollection(db, pid, 'opportunities')), options: strip(await listCollection(db, pid, 'options')),
-    runs: runs as any, candidates: candidates as any,
+    runs: runs as any, candidates: candidates as any, imports: strip(await listCollection(db, pid, 'imports')),
   };
 }

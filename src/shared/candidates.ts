@@ -106,7 +106,8 @@ export function applyToModel(c: Candidate, m: Model, layout: Record<string, { x:
   if (c.kind === 'node') {
     const id = newId('n', taken);
     next.nodes.push({ id, kind: c.nodeType, label: c.label, role: '', description: c.summary, scope: 'internal', parentId: null });
-    const ys = Object.values(layout).map((p) => p.y), xs = Object.values(layout).map((p) => p.x);
+    const positions = m.nodes.filter((n) => Object.hasOwn(layout, n.id)).map((n) => layout[n.id]);
+    const ys = positions.map((p) => p.y), xs = positions.map((p) => p.x);
     return { model: next, created: { kind: 'node', id }, position: { x: xs.length ? Math.min(...xs) : 200, y: (ys.length ? Math.max(...ys) : 200) + 190 } };
   }
   if (c.kind === 'relationship') {

@@ -1,16 +1,17 @@
-import { useEffect, useState } from 'react';
-import { canEdit, closeModal, discardRecovered, fail, flush, getState, loadBranch, loadProject, openModal, resolveKeepMine, resolveUseTheirs, restoreRecovered, saveNow, setMode, setNav, setState, signOut, useStore, type Mode, type Nav } from './store';
+import { useEffect, useRef, useState } from 'react';
+import { canEdit, closeModal, discardRecovered, fail, flush, getState, loadBranch, loadProject, openModal, resolveKeepMine, resolveUseTheirs, restoreRecovered, saveNow, setMode, setNav, setState, signOut, startInsight, useStore, type Mode, type Nav } from './store';
 import { addEdge, addNode } from './ops';
 import { Graph } from './Graph';
 import { Inspector } from './Inspector';
 import { Timeline } from './Timeline';
 import { LinkModal, NoteModal, SessionModal } from './Capture';
-import { Insights, NotesBoard } from './Board';
+import { NotesBoard } from './Board';
+import { InsightBar, InsightButton, InsightCtxButton, Insights } from './Insights';
 import { Decide } from './Decide';
 import { CandidateImportModal, Research, RunModal } from './Research';
 import { Report } from './Report';
 import { Settings } from './Settings';
-import { Field, Modal } from './ui';
+import { Field, Modal, onDevice, saveFile } from './ui';
 import { EDGE_TYPES, EDGE_TYPE_LABEL, NODE_KINDS, NODE_KIND_LABEL, type EdgeType, type NodeKind } from '../shared/model';
 
 const NAVS: [Nav, string, string][] = [['map', 'Map', '◎'], ['notes', 'Notes', '✎'], ['insights', 'Insights', '✦'], ['decide', 'Decide', '⚖'], ['research', 'Research', '⌕'], ['report', 'Brief', '▤'], ['settings', 'Project', '⚙']];
@@ -44,6 +45,43 @@ function ConnectModal() {
   );
 }
 
+const branchLabel = (b: { kind: string; name: string }) => (b.kind === 'baseline' ? 'Baseline' : `Scenario: ${b.name}`);
+
+/** Top left: shows the map version in use and opens a menu to switch version or go back to all projects. */
+function ProjectMenu() {
+  const project = useStore((s) => s.project)!, branches = useStore((s) => s.branches), branchId = useStore((s) => s.branchId);
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const away = (e: PointerEvent) => { if (!ref.current?.contains(e.target as Node)) setOpen(false); };
+    const key = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('pointerdown', away); document.addEventListener('keydown', key);
+    return () => { document.removeEventListener('pointerdown', away); document.removeEventListener('keydown', key); };
+  }, [open]);
+  const current = branches.find((b) => b.id === branchId);
+  return (
+    <div className="projmenu" ref={ref}>
+      <button className="projmenu-btn" aria-haspopup="menu" aria-expanded={open} data-testid="branch-select" onClick={() => setOpen(!open)}>
+        <span aria-hidden="true">☰</span><span className="projmenu-label">{current ? branchLabel(current) : 'Baseline'}</span>
+      </button>
+      {open && (
+        // data-back-closes: the Android Back button closes the menu first.
+        <div className="projmenu-pop" role="menu" data-back-closes="" data-testid="project-menu">
+          <a className="projmenu-item home" role="menuitem" href="#/" data-testid="menu-projects" onClick={() => { void flush(); setOpen(false); }}>← All projects</a>
+          <div className="projmenu-head"><span className="kicker">Project</span><b>{project.name}</b></div>
+          <span className="kicker projmenu-kicker">Map version</span>
+          {branches.map((b) => (
+            <button key={b.id} role="menuitemradio" aria-checked={b.id === branchId} className={`projmenu-item${b.id === branchId ? ' current' : ''}`} data-branch={b.id}
+              onClick={() => { setOpen(false); if (b.id !== branchId) loadBranch(b.id).catch(fail); }}>{b.id === branchId ? '✓ ' : ''}{branchLabel(b)}</button>
+          ))}
+          {!onDevice && <button role="menuitem" className="projmenu-item" onClick={signOut}>Sign out</button>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function SaveStatus() {
   const save = useStore((s) => s.save), error = useStore((s) => s.saveError), role = useStore((s) => s.role);
   if (role === 'reader') return <span className="savestate" data-testid="save-status" data-state="readonly">Read only</span>;
@@ -53,7 +91,7 @@ function SaveStatus() {
 
 function Banners() {
   const save = useStore((s) => s.save), error = useStore((s) => s.saveError), conflict = useStore((s) => s.conflict), recovered = useStore((s) => s.recovered), model = useStore((s) => s.model);
-  const download = () => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(model, null, 2)], { type: 'application/json' })); a.download = 'weave-local-draft.json'; a.click(); };
+  const download = () => void saveFile(new Blob([JSON.stringify(model, null, 2)], { type: 'application/json' }), 'weave-local-draft.json');
   return (<>
     {recovered && (<div className="banner warn" role="alert" data-testid="recovered-banner"><span><b>Unsaved draft found.</b> Changes from {new Date(recovered.at).toLocaleString()} were kept in this browser but never reached the server.</span><span><button className="primary" onClick={restoreRecovered} data-testid="recover-restore">Restore draft</button><button onClick={discardRecovered} data-testid="recover-discard">Discard</button></span></div>)}
     {save === 'failed' && (<div className="banner bad" role="alert" data-testid="save-failed-banner"><span><b>Your last change is not saved yet.</b> {error} It is kept in this browser and will be retried.</span><span><button className="primary" onClick={() => void saveNow()}>Retry now</button><button onClick={download}>Download draft</button></span></div>)}
@@ -66,7 +104,7 @@ export function Workspace({ pid }: { pid: string }) {
   const project = useStore((s) => s.project), loading = useStore((s) => s.loading), loadError = useStore((s) => s.loadError), nav = useStore((s) => s.nav), mode = useStore((s) => s.mode);
   const branches = useStore((s) => s.branches), branchId = useStore((s) => s.branchId), modal = useStore((s) => s.modal), session = useStore((s) => s.session), selection = useStore((s) => s.selection), model = useStore((s) => s.model);
   const counts = useStore((s) => s.evidence), pending = useStore((s) => s.research?.candidates.filter((c) => c.status === 'pending').length ?? 0);
-  const [addOpen, setAddOpen] = useState(false);
+  const [addOpen, setAddOpen] = useState(false), capturing = useStore((s) => !!s.insightDraft), inCtx = useStore((s) => !!s.insightCtx);
   useEffect(() => { void loadProject(pid); }, [pid]);
   useEffect(() => {
     const before = (e: BeforeUnloadEvent) => { const s = getState().save; if (s === 'dirty' || s === 'saving' || s === 'failed') { e.preventDefault(); } };
@@ -79,18 +117,16 @@ export function Workspace({ pid }: { pid: string }) {
   const branch = branches.find((b) => b.id === branchId);
   const badge: Partial<Record<Nav, number>> = { notes: counts.notes.length, insights: counts.insights.length, decide: counts.opportunities.length, research: pending };
   return (
-    <div className={`app nav-${nav}`} data-testid="workspace">
+    <div className={`app nav-${nav}${inCtx ? ' insight-mode' : ''}`} data-testid="workspace">
       <nav className="left" aria-label="Sections">
         <a className="brand" href="#/" aria-label="All projects" onClick={() => void flush()}><div className="brandmark">w</div><div className="brandtext"><div className="brandname">weave</div><div className="kicker">Operational Studio</div></div></a>
         <div className="workspace-card"><span className="kicker">Workflow</span><b title={project.name}>{project.name}</b>{project.isSynthetic && <span className="chip warnchip">synthetic data</span>}</div>
         <ul className="navlist">{NAVS.map(([k, label, icon]) => (<li key={k}><button className={`navbtn${nav === k ? ' active' : ''}`} aria-current={nav === k ? 'page' : undefined} onClick={() => setNav(k)} data-testid={`nav-${k}`}><span className="navicon" aria-hidden="true">{icon}</span><span className="navlabel">{label}</span>{badge[k] ? <span className="count">{badge[k]}</span> : null}</button></li>))}</ul>
-        <div className="left-bottom"><a className="linkbtn" href="#/" onClick={() => void flush()}>All projects</a><button className="linkbtn" onClick={signOut}>Sign out</button></div>
+        <div className="left-bottom"><a className="linkbtn" href="#/" onClick={() => void flush()}>All projects</a>{!onDevice && <button className="linkbtn" onClick={signOut}>Sign out</button>}</div>
       </nav>
       <div className="center">
         <header className="topbar">
-          <select className="branch-select" value={branchId} aria-label="Baseline or scenario" data-testid="branch-select" onChange={(e) => loadBranch(e.target.value).catch(fail)}>
-            {branches.map((b) => <option key={b.id} value={b.id}>{b.kind === 'baseline' ? 'Baseline' : `Scenario: ${b.name}`}</option>)}
-          </select>
+          <ProjectMenu />
           {nav === 'map' && (<div className="modegroup" role="tablist" aria-label="Map mode">{MODES.map(([k, label]) => <button key={k} role="tab" aria-selected={mode === k} className={`mode${mode === k ? ' active' : ''}`} onClick={() => setMode(k)} data-testid={`mode-${k}`}>{label}</button>)}</div>)}
           <span className="spacer" />
           <SaveStatus />
@@ -101,7 +137,7 @@ export function Workspace({ pid }: { pid: string }) {
               <button role="menuitem" onClick={() => openModal('note')} data-testid="add-note">Note{selection ? ' on selection' : ''} <kbd>N</kbd></button>
               <button role="menuitem" onClick={() => { setNav('map'); openModal('node'); }} data-testid="add-node">Node…</button>
               <button role="menuitem" onClick={() => { setNav('map'); openModal('connect'); }} data-testid="add-connection">Connection…</button>
-              <button role="menuitem" onClick={() => setNav('insights')}>Insight</button>
+              <button role="menuitem" onClick={() => startInsight()}>Insight</button>
               <button role="menuitem" onClick={() => { setNav('research'); openModal('candidates'); }}>Review agent findings…</button>
             </div>)}
           </div>)}
@@ -110,7 +146,9 @@ export function Workspace({ pid }: { pid: string }) {
         {branch?.kind === 'scenario' && nav === 'map' && <div className="banner info" data-testid="scenario-banner"><span>Editing scenario <b>{branch.name}</b>. The baseline and its evidence are not affected.</span><button className="linkbtn" onClick={() => loadBranch('baseline').catch(fail)}>Back to baseline</button></div>}
         <main className="main" id="main">
           {nav === 'map' ? (<div className="mapview"><Graph />{mode === 'timeline' && <Timeline />}
-            <div className="mobile-tools">{canEdit() && <button className="primary" onClick={() => openModal('note')} data-testid="fab-note">+ Note</button>}<button onClick={() => setState({ inspectorOpen: true })} data-testid="open-details">{selection ? 'Details' : mode === 'scenario' ? 'Scenario' : 'Overview'}</button></div>
+            <div className={`map-tools${capturing ? ' capturing' : ''}`}>{canEdit() && <button className="primary narrow-only" onClick={() => openModal('note')} data-testid="fab-note">+ Note</button>}<button className="narrow-only" onClick={() => setState({ inspectorOpen: true })} data-testid="open-details">{selection ? 'Details' : mode === 'scenario' ? 'Scenario' : 'Overview'}</button>{canEdit() && <InsightButton />}</div>
+            {capturing && <InsightBar />}
+            <InsightCtxButton />
           </div>) : nav === 'notes' ? <NotesBoard /> : nav === 'insights' ? <Insights /> : nav === 'decide' ? <Decide /> : nav === 'research' ? <Research /> : nav === 'report' ? <Report /> : <Settings />}
         </main>
       </div>

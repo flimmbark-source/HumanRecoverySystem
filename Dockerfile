@@ -15,6 +15,7 @@ COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/migrations ./migrations
 COPY --from=build /app/package.json ./
+COPY --from=build /app/scripts/start.mjs ./scripts/start.mjs
 COPY --from=build /app/assets ./assets
 COPY --from=build /app/reference/handoff/reference/weave_research_skill ./reference/handoff/reference/weave_research_skill
 USER weave

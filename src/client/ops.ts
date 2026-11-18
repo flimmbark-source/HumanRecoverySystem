@@ -79,6 +79,7 @@ export function deleteItem(sel: { type: 'node' | 'edge' | 'activity'; id: string
   editModel((m, layout) => {
     if (sel.type === 'node') {
       const gone = new Set(m.edges.filter((e) => e.from === sel.id || e.to === sel.id).map((e) => e.id));
+      for (const id of gone) delete layout[id];
       m.edges = m.edges.filter((e) => !gone.has(e.id));
       m.activities = m.activities.filter((a) => !(a.edgeId && gone.has(a.edgeId)) && a.ownerNodeId !== sel.id);
       for (const a of m.activities) if (a.performerId === sel.id) a.performerId = null;
@@ -88,6 +89,7 @@ export function deleteItem(sel: { type: 'node' | 'edge' | 'activity'; id: string
       for (const r of m.routes) { if (r.startNodeId === sel.id) r.startNodeId = null; if (r.endNodeId === sel.id) r.endNodeId = null; }
       delete layout[sel.id];
     } else if (sel.type === 'edge') {
+      delete layout[sel.id];
       m.edges = m.edges.filter((e) => e.id !== sel.id);
       m.activities = m.activities.filter((a) => a.edgeId !== sel.id);
     } else m.activities = m.activities.filter((a) => a.id !== sel.id);

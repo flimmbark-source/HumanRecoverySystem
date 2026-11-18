@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { canEdit, closeModal, createDoc, deleteDocById, fail, flush, getState, goToTarget, openModal, setNav, setSession, toast, updateDoc, useStore, type V } from './store';
+import { canEdit, closeModal, createDoc, deleteDocById, editInsightsUi, fail, flush, getState, goToTarget, openModal, setNav, setSession, toast, updateDoc, useStore, type V } from './store';
 import { Field, Modal } from './ui';
 import { anchorState, targetLabel } from '../shared/diff';
 import { NOTE_KINDS, RELATIONS, RELATION_LABEL, SOURCE_TYPES, type Episode, type Note } from '../shared/workspace';
@@ -139,6 +139,7 @@ export function SessionModal() {
 /** Click-through from a link to the record at its other end. */
 export function jumpTo(type: 'note' | 'insight', id: string) {
   const want = type === 'insight' ? 'insights' : 'notes';
+  if (type === 'insight') editInsightsUi({ expanded: id, scroll: -1 });
   if (getState().nav !== want) setNav(want);
   setTimeout(() => { const el = document.querySelector<HTMLElement>(`[data-${type}="${id}"]`); el?.scrollIntoView({ block: 'center' }); el?.classList.add('flash'); setTimeout(() => el?.classList.remove('flash'), 1600); }, 80);
 }

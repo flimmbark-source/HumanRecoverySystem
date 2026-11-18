@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { del, get, patch, post } from './api';
 import { canEdit, fail, flush, getState, loadBranch, loadProject, reloadProjectMeta, toast, useStore } from './store';
-import { Field, when } from './ui';
+import { Field, onDevice, when } from './ui';
 import { ImportPanel } from './Projects';
 
 const META: [string, string, number][] = [['researchQuestion', 'Research question', 2], ['orgUnit', 'Organization or unit', 1], ['scopeDescription', 'Workflow scope', 3], ['startLabel', 'Where the workflow starts', 1], ['intendedOutcome', 'Intended outcome', 2], ['externalInterfaces', 'Known external interfaces', 2]];
@@ -28,12 +28,12 @@ export function Settings() {
         {META.map(([k, label, rows]) => <Field key={k} label={label}><textarea rows={rows} value={meta[k] ?? ''} disabled={ro} onChange={(e) => setMeta({ ...meta, [k]: e.target.value })} /></Field>)}
         {!ro && <button className="primary" onClick={save} data-testid="project-save">Save details</button>}
       </section>
-      <section className="card" data-testid="members">
+      {!onDevice && <section className="card" data-testid="members">
         <h3>People with access</h3>
         <p className="micro">Projects are private. Only the people listed here can open this one. Readers cannot change anything.</p>
         <table className="impact"><tbody>{members.map((m) => <tr key={m.id}><th>{m.name}<small>{m.email}</small></th><td>{m.role}</td><td>{owner && <button className="linkbtn danger" onClick={() => del(`/projects/${pid}/members/${m.id}`).then(reloadProjectMeta).catch(fail)}>Remove</button>}</td></tr>)}</tbody></table>
         {owner && <div className="capture-row"><input type="email" value={email} placeholder="colleague@example.org" aria-label="Email to add" data-testid="member-email" onChange={(e) => setEmail(e.target.value)} /><select value={mrole} aria-label="Role" data-testid="member-role" onChange={(e) => setMrole(e.target.value)}><option value="editor">Researcher (can edit)</option><option value="reader">Reader</option><option value="owner">Owner</option></select><button data-testid="member-add" onClick={() => post(`/projects/${pid}/members`, { email, role: mrole }).then(() => { setEmail(''); toast('Access updated'); return reloadProjectMeta(); }).catch(fail)}>Add or change</button></div>}
-      </section>
+      </section>}
       <section className="card" data-testid="history">
         <h3>History of “{branches.find((b) => b.id === branchId)?.name}”</h3>
         <p className="micro">Every saved change is an immutable revision. Restoring one adds a new revision; nothing is overwritten.</p>
