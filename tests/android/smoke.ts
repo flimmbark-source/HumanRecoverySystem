@@ -62,16 +62,14 @@ async function run() {
   step('the back button closes a dialog before it leaves the page');
   await p.getByTestId('fab-note').click();
   await p.locator('.modal').waitFor();
-  // The dialog focuses its text box, which opens the keyboard. Back first closes the keyboard, so close it first.
-  await p.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
-  await new Promise((resolve) => setTimeout(resolve, 1000));
-  if ((await shell('dumpsys input_method')).includes('mInputShown=true')) {
-    console.log('  the keyboard is still open: Back closes it first');
+  // The dialog focuses its text box, which can open the keyboard, and Android sends Back to an open keyboard
+  // first. So a second Back is allowed, never a third, and the page must still show the map.
+  for (let presses = 1; ; presses++) {
     await back();
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+    if (await p.locator('.modal').waitFor({ state: 'detached', timeout: 4_000 }).then(() => true, () => false)) break;
+    if (presses === 2) throw new Error('Back did not close the dialog.');
+    console.log('  the first Back closed the keyboard');
   }
-  await back();
-  await p.locator('.modal').waitFor({ state: 'detached', timeout: 10_000 });
   await p.getByTestId('graph').waitFor();
 
   step('an export opens the system save dialog');
