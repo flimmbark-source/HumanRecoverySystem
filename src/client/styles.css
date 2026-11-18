@@ -201,6 +201,44 @@ details.plain{margin:10px 0}details.plain>summary{cursor:pointer;font-weight:700
  .playbar{padding:8px 10px}.playbar-totals{margin-left:0}
  .register{display:block;overflow-x:auto}.toast{bottom:74px}
 }
+/* phones: controls sized for a finger (40 px or more), readable text, dialogs as bottom sheets */
+@media (max-width:720px){
+ body{font-size:14px}
+ button,.btn{min-height:40px;font-size:13px}
+ input,select,textarea{min-height:42px;font-size:15px}
+ input[type=checkbox],input[type=radio]{width:20px;height:20px;min-height:0}
+ .linkbtn{min-height:36px;padding:6px 4px}.iconbtn{min-width:40px;min-height:40px}
+ .micro,.field-hint,.field-label,.choice legend{font-size:12px}.kicker{font-size:10.5px}.chip{font-size:11px;padding:3px 9px}
+ .mode{min-height:36px;font-size:12.5px}.tabs button{min-height:40px;min-width:44px;font-size:12.5px}.rowbtn{min-height:44px}
+ .anchor{min-height:30px;font-size:11.5px}.lens-actors button{min-height:34px}.legend-toggle{min-height:40px}
+ .sticky-text{font-size:13.5px}.lens-narrative p{font-size:14px}
+ .sessionbar,.addwrap>.primary{min-width:40px}.canvas-actions button{min-width:40px}
+ .navbtn{min-height:56px;font-size:10.5px}.toast{bottom:82px}
+ .modal-back{place-items:end stretch;padding:0}
+ .modal,.modal.wide{width:100%;max-height:92dvh;border-radius:18px 18px 0 0}
+ .modal-head{padding:12px 16px}.modal-body{padding:14px 16px}.modal-foot{padding:10px 16px}
+ .filters{display:grid;grid-template-columns:1fr 1fr;gap:8px}.filters input,.filters select{width:100%;flex:none}.filters input[type=search],.filters .field.inline{grid-column:1/-1}
+ .canvas-tools input[type=search]{width:124px;min-height:36px;font-size:14px}
+ .playbar-controls button{min-width:40px}
+ .righthead{font-size:11.5px}.quiet-caption,.lens-description{font-size:12.5px}.lens-type{font-size:11px}.tokkey i{font-size:10.5px}
+ .lens-flow-cell small{font-size:10px}.lens-flow-cell strong{font-size:12.5px}.lens-flow-cell em{font-size:11px}.lens-inline-metrics,.lens-fact-row{font-size:12.5px}
+ .lens-disclosure>summary>span:nth-child(2){font-size:13.5px}.lens-disclosure summary small{font-size:11.5px}.stat small{font-size:11px}
+ .playbar-totals{font-size:12.5px}.playbar-step{font-size:13px}.phase{font-size:11.5px}.state,.route-flags{font-size:12px}
+ .sticky-kind{font-size:10.5px}.sticky footer{font-size:11.5px}
+ .left{padding-bottom:env(safe-area-inset-bottom)}
+}
+/* touch screens: a pressed button darkens, instead of the browser's grey tap box */
+@media (hover:none){
+ *{-webkit-tap-highlight-color:transparent}
+ button:active,.btn:active{filter:brightness(.92)}
+}
+/* small phones: the map modes get a row of their own, so the top bar never runs off the screen */
+@media (max-width:560px){
+ .topbar{flex-wrap:wrap;height:auto;min-height:52px;padding:6px 8px}
+ .branch-select{max-width:58%}
+ .modegroup{order:1;flex:1 0 100%}.mode{flex:1}
+ .canvas-legend,.canvas-legend:not(.closed){bottom:62px}
+}
 @media print{
  .left,.topbar,.banner,.exports,.page-head,.effortlog,.toast{display:none!important}.app,.main,.center{display:block;height:auto;overflow:visible}.brief{border:0;padding:0}body{background:#fff}
 }

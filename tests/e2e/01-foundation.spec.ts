@@ -134,7 +134,7 @@ test.describe('Import and recovery', () => {
 });
 
 test.describe('Map and spacing', () => {
-  for (const [w, h] of [[1440, 900], [1140, 800], [780, 900], [390, 780]] as const) {
+  for (const [w, h] of [[1440, 900], [1140, 800], [780, 900], [390, 780], [360, 760]] as const) {
     test(`layout holds at ${w}px`, async ({ page }) => {
       await page.setViewportSize({ width: w, height: h });
       await freshProject(page, `Spacing ${w}`);
