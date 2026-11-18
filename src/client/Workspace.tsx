@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
-import { canEdit, closeModal, discardRecovered, fail, flush, getState, loadBranch, loadProject, openModal, resolveKeepMine, resolveUseTheirs, restoreRecovered, saveNow, setMode, setNav, setState, signOut, useStore, type Mode, type Nav } from './store';
+import { canEdit, closeModal, discardRecovered, fail, flush, getState, loadBranch, loadProject, openModal, resolveKeepMine, resolveUseTheirs, restoreRecovered, saveNow, setMode, setNav, setState, signOut, startInsight, useStore, type Mode, type Nav } from './store';
 import { addEdge, addNode } from './ops';
 import { Graph } from './Graph';
 import { Inspector } from './Inspector';
 import { Timeline } from './Timeline';
 import { LinkModal, NoteModal, SessionModal } from './Capture';
-import { Insights, NotesBoard } from './Board';
+import { NotesBoard } from './Board';
+import { InsightBar, InsightButton, Insights, SpotlightBanner } from './Insights';
 import { Decide } from './Decide';
 import { CandidateImportModal, Research, RunModal } from './Research';
 import { Report } from './Report';
@@ -66,7 +67,7 @@ export function Workspace({ pid }: { pid: string }) {
   const project = useStore((s) => s.project), loading = useStore((s) => s.loading), loadError = useStore((s) => s.loadError), nav = useStore((s) => s.nav), mode = useStore((s) => s.mode);
   const branches = useStore((s) => s.branches), branchId = useStore((s) => s.branchId), modal = useStore((s) => s.modal), session = useStore((s) => s.session), selection = useStore((s) => s.selection), model = useStore((s) => s.model);
   const counts = useStore((s) => s.evidence), pending = useStore((s) => s.research?.candidates.filter((c) => c.status === 'pending').length ?? 0);
-  const [addOpen, setAddOpen] = useState(false);
+  const [addOpen, setAddOpen] = useState(false), capturing = useStore((s) => !!s.insightDraft);
   useEffect(() => { void loadProject(pid); }, [pid]);
   useEffect(() => {
     const before = (e: BeforeUnloadEvent) => { const s = getState().save; if (s === 'dirty' || s === 'saving' || s === 'failed') { e.preventDefault(); } };
@@ -101,16 +102,18 @@ export function Workspace({ pid }: { pid: string }) {
               <button role="menuitem" onClick={() => openModal('note')} data-testid="add-note">Note{selection ? ' on selection' : ''} <kbd>N</kbd></button>
               <button role="menuitem" onClick={() => { setNav('map'); openModal('node'); }} data-testid="add-node">Node…</button>
               <button role="menuitem" onClick={() => { setNav('map'); openModal('connect'); }} data-testid="add-connection">Connection…</button>
-              <button role="menuitem" onClick={() => setNav('insights')}>Insight</button>
+              <button role="menuitem" onClick={startInsight}>Insight</button>
               <button role="menuitem" onClick={() => { setNav('research'); openModal('candidates'); }}>Review agent findings…</button>
             </div>)}
           </div>)}
         </header>
         <Banners />
+        {nav === 'map' && <SpotlightBanner />}
         {branch?.kind === 'scenario' && nav === 'map' && <div className="banner info" data-testid="scenario-banner"><span>Editing scenario <b>{branch.name}</b>. The baseline and its evidence are not affected.</span><button className="linkbtn" onClick={() => loadBranch('baseline').catch(fail)}>Back to baseline</button></div>}
         <main className="main" id="main">
           {nav === 'map' ? (<div className="mapview"><Graph />{mode === 'timeline' && <Timeline />}
-            <div className="mobile-tools">{canEdit() && <button className="primary" onClick={() => openModal('note')} data-testid="fab-note">+ Note</button>}<button onClick={() => setState({ inspectorOpen: true })} data-testid="open-details">{selection ? 'Details' : mode === 'scenario' ? 'Scenario' : 'Overview'}</button></div>
+            <div className={`map-tools${capturing ? ' capturing' : ''}`}>{canEdit() && <button className="primary narrow-only" onClick={() => openModal('note')} data-testid="fab-note">+ Note</button>}<button className="narrow-only" onClick={() => setState({ inspectorOpen: true })} data-testid="open-details">{selection ? 'Details' : mode === 'scenario' ? 'Scenario' : 'Overview'}</button>{canEdit() && <InsightButton />}</div>
+            {capturing && <InsightBar />}
           </div>) : nav === 'notes' ? <NotesBoard /> : nav === 'insights' ? <Insights /> : nav === 'decide' ? <Decide /> : nav === 'research' ? <Research /> : nav === 'report' ? <Report /> : <Settings />}
         </main>
       </div>

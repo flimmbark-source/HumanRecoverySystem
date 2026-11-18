@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { api, freshProject, saved, selectEdge } from './helpers';
+import { api, freshProject, newInsight, saved, selectEdge } from './helpers';
 
 async function startSession(page: Page, anon: string, type = 'interview', role = 'Coordinator', group = 'Placement fieldwork') {
   await page.getByTestId('session-button').click();
@@ -58,9 +58,7 @@ test.describe('Fieldwork and synthesis', () => {
     await expect(page.getByTestId('lens-title')).toHaveText('Triage application');
 
     // 3. insight with supporting and contradicting notes; click through to both
-    await page.getByTestId('nav-insights').click();
-    await page.getByTestId('insight-new').fill('Capacity answers arrive quickly; the delay is in asking.');
-    await page.getByTestId('insight-add').click();
+    await newInsight(page, 'Capacity answers arrive quickly; the delay is in asking.');
     const insight = page.getByTestId('insight').first();
     const attach = async (noteText: string, relation: string) => {
       await insight.getByTestId('insight-attach').click();
@@ -140,11 +138,55 @@ test.describe('Observation in context', () => {
 });
 
 test.describe('Open-ended synthesis and decision', () => {
+  test('captures an insight by tapping boxes on the map, joined by a thread; an empty press only leaves capture', async ({ page }) => {
+    const id = await freshProject(page, 'Insight capture');
+    await page.getByTestId('insight-mode').click();
+    await expect(page.getByTestId('insight-bar')).toBeVisible();
+    await page.getByTestId('insight-mode').click();
+    await expect(page.getByTestId('insight-bar')).toHaveCount(0);
+    expect((await api(page, `/projects/${id}/evidence`)).insights).toHaveLength(0);
+
+    // tapping toggles boxes, does not open their details, and a thread joins two or more
+    await page.getByTestId('insight-mode').click();
+    await page.locator('[data-label-for="e3"]').click();
+    await expect(page.getByTestId('insight-thread')).toHaveCount(0);
+    await page.locator('[data-node="n3"]').click();
+    await page.locator('[data-node="n1"]').click();
+    await page.locator('[data-node="n1"]').click();
+    await expect(page.locator('.picked')).toHaveCount(2);
+    await expect(page.getByTestId('insight-thread')).toHaveCount(1);
+    // a drag that starts on a box pans the map and does not pick the box
+    const before = await page.getByTestId('graph').getAttribute('viewBox');
+    const b2 = (await page.locator('[data-node="n2"] .base').boundingBox())!;
+    await page.mouse.move(b2.x + b2.width / 2, b2.y + b2.height / 2); await page.mouse.down();
+    await page.mouse.move(b2.x + b2.width / 2 + 90, b2.y + b2.height / 2 + 40, { steps: 6 }); await page.mouse.up();
+    expect(await page.getByTestId('graph').getAttribute('viewBox')).not.toBe(before);
+    await expect(page.locator('.picked')).toHaveCount(2);
+    await expect(page.locator('[data-edge="e3"]')).not.toHaveClass(/selected/);
+    await expect(page.getByTestId('insight-mode')).toHaveText('✦ Save insight');
+    await page.getByTestId('insight-mode').click();
+    await expect(page.getByTestId('insight-bar')).toHaveCount(0);
+    await expect(page.getByTestId('insight-thread')).toHaveCount(0);
+    const ev = await api(page, `/projects/${id}/evidence`);
+    expect(ev.insights[0]).toMatchObject({ title: 'About Find a placement, Coordinator', body: '', modelLinks: ['e3', 'n3'], focus: {} });
+
+    // on the Insights page a detail can be starred; Show on map redraws the thread and fades the rest
+    await page.getByTestId('nav-insights').click();
+    const card = page.getByTestId('insight').first();
+    await card.locator('[data-item="e3"] summary').click();
+    await card.locator('[data-item="e3"] [data-fact="waiting"] .star').click();
+    await expect(card.locator('[data-item="e3"] .fact.on dt')).toHaveText('Waiting time');
+    await expect.poll(async () => (await api(page, `/projects/${id}/evidence`)).insights[0].focus).toEqual({ e3: ['waiting'] });
+    await card.getByTestId('show-on-map').click();
+    await expect(page.getByTestId('spotlight-banner')).toBeVisible();
+    await expect(page.getByTestId('insight-thread')).toHaveCount(1);
+    await expect(page.locator('[data-node="n3"]')).toHaveClass(/picked/);
+    await expect(page.locator('[data-node="n1"]')).toHaveClass(/dim/);
+  });
+
   test('an insight needs nothing attached; evidence comes and goes without touching notes; weak evidence makes a hypothesis', async ({ page }) => {
     const id = await freshProject(page, 'Open synthesis');
-    await page.getByTestId('nav-insights').click();
-    await page.getByTestId('insight-new').fill('The matching conversation is where the quality comes from.');
-    await page.getByTestId('insight-add').click();
+    await newInsight(page, 'The matching conversation is where the quality comes from.');
     await expect(page.getByTestId('insight-evidence').first()).toHaveText('No evidence linked');
     await page.reload();
     await page.getByTestId('nav-insights').click();

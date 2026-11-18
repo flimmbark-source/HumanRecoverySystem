@@ -84,8 +84,8 @@ public class MainActivity extends Activity {
 
     @Override
     public void onBackPressed() {
-        // An open dialog closes first (dialogs in the page close on Escape). Then the page goes back.
-        web.evaluateJavascript("(function(){if(!document.querySelector('.modal-back'))return false;"
+        // An open dialog or insight capture closes first (both close on Escape). Then the page goes back.
+        web.evaluateJavascript("(function(){if(!document.querySelector('.modal-back,[data-back-closes]'))return false;"
                 + "document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape'}));return true})()", new ValueCallback<String>() {
             @Override
             public void onReceiveValue(String closedDialog) {

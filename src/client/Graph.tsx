@@ -16,7 +16,7 @@ const LEGEND_KEY = 'weave:map-legend';
 
 type Drag =
   | { type: 'node' | 'label'; id: string; pointerId: number; cx: number; cy: number; dx: number; dy: number; moved: boolean }
-  | { type: 'pan'; vx: number; vy: number; cx: number; cy: number; moved: boolean }
+  | { type: 'pan'; vx: number; vy: number; cx: number; cy: number; moved: boolean; pick?: string }
   | { type: 'pinch'; d: number }
   | { type: 'link'; from: string };
 
@@ -60,11 +60,36 @@ function Token({ model, layout }: { model: Model; layout: Layout }) {
   );
 }
 
+/** An insight's tapped boxes, joined by purple threads to a knot between them. No order is implied. */
+function Thread({ points, knot }: { points: { x: number; y: number }[]; knot?: boolean }) {
+  const k = { x: points.reduce((t, p) => t + p.x, 0) / points.length, y: points.reduce((t, p) => t + p.y, 0) / points.length };
+  // The knot is drawn above the boxes, the threads below them, so they look tied into the boxes.
+  if (knot) return (
+    <g className="insight-knot" pointerEvents="none">
+      <circle cx={k.x} cy={k.y} r={11} fill="#7b4cb8" stroke="#fff" strokeWidth={2} />
+      <text x={k.x} y={k.y + 4} textAnchor="middle" className="thread-knot">✦</text>
+    </g>
+  );
+  return (
+    <g className="insight-thread" data-testid="insight-thread" pointerEvents="none">
+      {points.map((p, i) => {
+        const bend = 0.12, d = `M ${k.x} ${k.y} Q ${(k.x + p.x) / 2 - (p.y - k.y) * bend} ${(k.y + p.y) / 2 + (p.x - k.x) * bend} ${p.x} ${p.y}`;
+        return <g key={i}><path d={d} fill="none" stroke="#8b5cc7" strokeWidth={2.2} strokeLinecap="round" opacity={0.55} /><circle cx={p.x} cy={p.y} r={4} fill="#8b5cc7" opacity={0.7} /></g>;
+      })}
+    </g>
+  );
+}
+
 export function Graph() {
   const model = useStore((s) => s.model)!, layout = useStore((s) => s.layout), selection = useStore((s) => s.selection), mode = useStore((s) => s.mode);
   const compareModel = useStore((s) => s.compareModel), notes = useStore((s) => s.evidence.notes), placing = useStore((s) => s.placing), linkFrom = useStore((s) => s.linkFrom);
   const routeId = useStore((s) => s.routeId), branchId = useStore((s) => s.branchId);
   const canUndo = useStore((s) => s.canUndo), canRedo = useStore((s) => s.canRedo);
+  const draft = useStore((s) => s.insightDraft), spotlight = useStore((s) => s.spotlight), insights = useStore((s) => s.evidence.insights);
+  // Items picked for an insight being written, or linked to the insight the map is showing.
+  const picking = !!draft;
+  const threadIds = useMemo(() => draft?.picks ?? insights.find((i) => i.id === spotlight)?.modelLinks ?? [], [draft, spotlight, insights]);
+  const lit = useMemo(() => new Set(threadIds), [threadIds]);
   const svgRef = useRef<SVGSVGElement>(null), wrapRef = useRef<HTMLDivElement>(null);
   const [view, setView] = useState<ViewBox | null>(null);
   const [dragPos, setDragPos] = useState<{ id: string; x: number; y: number } | null>(null);
@@ -115,6 +140,13 @@ export function Graph() {
     ro.observe(el); return () => ro.disconnect();
   }, []);
   useEffect(() => { const h = () => fit(); window.addEventListener('weave:fit', h); return () => window.removeEventListener('weave:fit', h); });
+  // Showing an insight's items: bring them, and the ends of linked connections, into view.
+  useEffect(() => {
+    if (!spotlight || !lit.size) return;
+    const ids = model.edges.filter((e) => lit.has(e.id)).flatMap((e) => [e.from, e.to]).concat(model.nodes.filter((n) => lit.has(n.id)).map((n) => n.id));
+    if (ids.length) fit(ids);
+    /* eslint-disable-next-line */
+  }, [spotlight]);
 
   const toSvg = (cx: number, cy: number) => {
     const svg = svgRef.current!, r = svg.getBoundingClientRect(), v = view!;
@@ -144,7 +176,7 @@ export function Graph() {
   }, [focusOnly, selection, model]);
   const term = search.trim().toLowerCase();
   const matches = (text: string) => !term || text.toLowerCase().includes(term);
-  const dim = (id: string, text: string) => (neighbors && !neighbors.has(id)) || !matches(text);
+  const dim = (id: string, text: string) => (neighbors && !neighbors.has(id)) || !matches(text) || (!!spotlight && !draft && !lit.has(id));
 
   const onBgDown = (e: React.PointerEvent) => {
     if (drag.current?.type === 'node' || drag.current?.type === 'label') return;
@@ -181,7 +213,7 @@ export function Graph() {
     const d = drag.current;
     if (!d || ('pointerId' in d && e.pointerId !== d.pointerId)) return;
     drag.current = null;
-    if (d.type === 'pan') { if (!d.moved) select(null); else setView((v) => { keep(v); return v; }); }
+    if (d.type === 'pan') { if (!d.moved) select(d.pick ? { type: 'node', id: d.pick } : null); else setView((v) => { keep(v); return v; }); }
     else if (d.type === 'node') {
       if (d.moved && dragPos) {
         setLabelPreference({ layout: lay, positions: labels });
@@ -209,6 +241,8 @@ export function Graph() {
   const onNodeDown = (e: React.PointerEvent, n: WNode) => {
     e.stopPropagation();
     if (!e.isPrimary || e.button !== 0) return;
+    // Capturing an insight: a clean tap picks the box, a drag that starts on it pans the map.
+    if (picking) { onBgDown(e); if (drag.current?.type === 'pan') drag.current.pick = n.id; return; }
     if (linkFrom) { if (linkFrom !== n.id) addEdge(linkFrom, n.id); setState({ linkFrom: null }); setLinkPoint(null); return; }
     if (!editable) { select({ type: 'node', id: n.id }); return; }
     startBoxDrag(e, 'node', n.id, pos(layout, n.id));
@@ -243,9 +277,10 @@ export function Graph() {
   const routeRefs = new Set(route?.steps.map((s) => s.refId));
   const activeRef = route && playStep >= 0 ? route.steps[playStep]?.refId : null;
   const v = view ?? { x: 0, y: 0, w: 1200, h: 720 };
+  const threadPoints = threadIds.map((id) => labels.get(id) ?? (model.nodes.some((n) => n.id === id) ? pos(lay, id) : null)).filter((p): p is { x: number; y: number } => !!p);
   const ghosts = diff && compareModel ? { edges: compareModel.edges.filter((e) => diff.removed.has(e.id)), nodes: compareModel.nodes.filter((n) => diff.removed.has(n.id)) } : null;
   const ghostLayout: Layout = ghosts ? { ...Object.fromEntries(compareModel!.nodes.map((n) => [n.id, pos(lay, n.id)])), ...lay } : lay;
-  const labelsDraggable = editable && !linkFrom && !placing;
+  const labelsDraggable = editable && !linkFrom && !placing && !picking;
   const toggleLegend = () => {
     setLegend(!legend);
     try { localStorage.setItem(LEGEND_KEY, legend ? 'closed' : 'open'); } catch { /* The in-memory toggle still works. */ }
@@ -258,7 +293,7 @@ export function Graph() {
         <label className="toggle"><input type="checkbox" checked={focusOnly} onChange={(e) => setFocusOnly(e.target.checked)} /> Focus on selection</label>
         {model.nodes.some((n) => n.scope === 'context') && <label className="toggle"><input type="checkbox" checked={hideContext} onChange={(e) => setHideContext(e.target.checked)} /> Hide context</label>}
       </div>
-      <svg ref={svgRef} className={`graph${labelsDraggable ? ' labels-draggable' : ''}${dragLabel ? ' dragging-label' : ''}`} data-testid="graph" viewBox={`${v.x} ${v.y} ${v.w} ${v.h}`} role="group" aria-label={`Map of ${model.name || 'the workflow'}: ${model.nodes.length} nodes and ${model.edges.length} connections`}
+      <svg ref={svgRef} className={`graph${picking ? ' picking' : ''}${labelsDraggable ? ' labels-draggable' : ''}${dragLabel ? ' dragging-label' : ''}`} data-testid="graph" viewBox={`${v.x} ${v.y} ${v.w} ${v.h}`} role="group" aria-label={`Map of ${model.name || 'the workflow'}: ${model.nodes.length} nodes and ${model.edges.length} connections`}
         onPointerDown={onBgDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={(e) => {
           const d = drag.current;
           if (d && 'pointerId' in d && d.pointerId !== e.pointerId) return;
@@ -281,7 +316,7 @@ export function Graph() {
             const sel = selection?.type === 'edge' && selection.id === e.id, color = TYPE_COLOR[e.type], count = noteCount(e.id);
             const changed = diff && (diff.added.has(e.id) || diff.changed.has(e.id)), flagged = diff?.downstream.some((d) => d.id === e.id);
             const far = Math.hypot(l.x - g.mx, l.y - g.my) > 125, w = labelWidth(e.label);
-            const cls = `edgegroup${sel ? ' selected' : ''}${dim(e.id, `${e.label} ${e.workItem} ${e.description}`) ? ' dim' : ''}${route && !routeRefs.has(e.id) ? ' offroute' : ''}${activeRef === e.id ? ' playing' : ''}`;
+            const cls = `edgegroup${sel ? ' selected' : ''}${lit.has(e.id) ? ' picked' : ''}${dim(e.id, `${e.label} ${e.workItem} ${e.description}`) ? ' dim' : ''}${route && !routeRefs.has(e.id) ? ' offroute' : ''}${activeRef === e.id ? ' playing' : ''}`;
             return (
               <g key={e.id} className={cls} data-edge={e.id} data-type={e.type} tabIndex={0} role="button" aria-label={`${EDGE_TYPE_LABEL[e.type]} connection: ${e.label}, from ${model.nodes.find((n) => n.id === e.from)?.label} to ${model.nodes.find((n) => n.id === e.to)?.label}`}
                 onKeyDown={(ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); select({ type: 'edge', id: e.id }); } }}>
@@ -307,6 +342,7 @@ export function Graph() {
           })}
         </g>
 
+        {threadPoints.length > 1 && <Thread points={threadPoints} />}
         <g>
           {visibleModel.nodes.map((n) => {
             const p = pos(lay, n.id), w = nodeW(n), [tile, fill, stroke] = PALETTE[n.kind];
@@ -315,7 +351,7 @@ export function Graph() {
             const changed = diff && (diff.added.has(n.id) || diff.changed.has(n.id)), flagged = diff?.downstream.some((d) => d.id === n.id) || diff?.unreachableOutcomes.some((o) => o.id === n.id);
             const sub = n.role || n.kind;
             return (
-              <g key={n.id} className={`nodeSvg${sel ? ' selected' : ''}${endpoints.has(n.id) ? ' endpoint' : ''}${dim(n.id, `${n.label} ${n.role} ${n.description}`) ? ' dim' : ''}${linkFrom === n.id ? ' linking' : ''}`} data-node={n.id} data-scope={n.scope} transform={`translate(${p.x} ${p.y})`}
+              <g key={n.id} className={`nodeSvg${sel ? ' selected' : ''}${lit.has(n.id) ? ' picked' : ''}${endpoints.has(n.id) ? ' endpoint' : ''}${dim(n.id, `${n.label} ${n.role} ${n.description}`) ? ' dim' : ''}${linkFrom === n.id ? ' linking' : ''}`} data-node={n.id} data-scope={n.scope} transform={`translate(${p.x} ${p.y})`}
                 tabIndex={0} role="button" aria-label={`${n.kind} ${n.label}${n.scope !== 'internal' ? `, ${n.scope} to the reviewed scope` : ''}`}
                 onPointerDown={(ev) => onNodeDown(ev, n)}
                 onKeyDown={(ev) => { if ((ev.key === 'Enter' || ev.key === ' ') && ev.target === ev.currentTarget) { ev.preventDefault(); if (linkFrom && linkFrom !== n.id) { addEdge(linkFrom, n.id); setState({ linkFrom: null }); } else select({ type: 'node', id: n.id }); } }}>
@@ -331,13 +367,14 @@ export function Graph() {
                 {n.scope !== 'internal' && (<g className="scope-tag" transform={`translate(${-w / 2 + 5} ${NODE_H / 2 + 9})`}><rect x={0} y={-2} width={70} height={17} rx={7} fill="#fef7e9" stroke="#dfc79e" /><text x={35} y={10} textAnchor="middle">{n.scope === 'external' ? 'EXTERNAL' : 'CONTEXT'}</text></g>)}
                 {internal > 0 && <text x={n.scope !== 'internal' ? -w / 2 + 84 : -w / 2 + 8} y={NODE_H / 2 + 19} className="internal-count">◈ {internal} internal {internal === 1 ? 'activity' : 'activities'}</text>}
                 {count > 0 && (<g className="note-pin" data-pin-for={n.id} transform={`translate(${w / 2 - 2} ${-NODE_H / 2 - 3})`} role="img" aria-label={`${count} note${count === 1 ? '' : 's'}`}><circle r={11} fill="#f6ce79" /><text y={4} textAnchor="middle">{count}</text></g>)}
-                {editable && (<circle className="port" cx={w / 2} cy={0} r={8} tabIndex={0} role="button" aria-label={`Start a connection from ${n.label}`}
+                {editable && !picking && (<circle className="port" cx={w / 2} cy={0} r={8} tabIndex={0} role="button" aria-label={`Start a connection from ${n.label}`}
                   onPointerDown={(ev) => startLink(ev, n, true)} onKeyDown={(ev) => { if (ev.key === 'Enter' || ev.key === ' ') startLink(ev, n, false); }} />)}
               </g>
             );
           })}
         </g>
         {linkFrom && linkPoint && (() => { const p = pos(lay, linkFrom); return <line x1={p.x} y1={p.y} x2={linkPoint.x} y2={linkPoint.y} stroke="#467b64" strokeWidth={2} strokeDasharray="5 5" pointerEvents="none" />; })()}
+        {threadPoints.length > 1 && <Thread points={threadPoints} knot />}
         {mode === 'timeline' && <Token model={model} layout={lay} />}
       </svg>
 

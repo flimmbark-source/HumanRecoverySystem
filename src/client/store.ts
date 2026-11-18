@@ -18,6 +18,7 @@ export interface CandidateRow { id: string; runId: string | null; origin: string
 export interface RunRow { id: string; mode: 'wide' | 'deep'; status: string; question: string; provider: string; input: any; result: any; error: string; attempts: number; maxAttempts: number; createdAt: string; finishedAt: string | null }
 export interface ProviderStatus { id: string; label: string; synthetic: boolean; available: boolean; reason: string }
 export type SaveState = 'saved' | 'dirty' | 'saving' | 'failed' | 'conflict';
+export interface InsightDraft { picks: string[]; text: string }
 
 export interface State {
   user: { id: string; name: string; email: string } | null;
@@ -45,6 +46,9 @@ export interface State {
   canUndo: boolean; canRedo: boolean;
   toast: { text: string; kind: 'info' | 'error' } | null;
   placing: string | null; linkFrom: string | null; modal: { kind: string; data?: any } | null;
+  // Insight capture on the map: the boxes tapped, in order, and the text.
+  insightDraft: InsightDraft | null;
+  spotlight: string | null; // insight whose linked items the map is showing
   loading: boolean; loadError: string;
 }
 
@@ -52,7 +56,7 @@ const emptyEvidence = (): Evidence => ({ sources: [], notes: [], insights: [], l
 const initial: State = {
   user: null, authChecked: false, project: null, role: 'reader', members: [], branches: [], provider: null, branchId: 'baseline', revision: null, model: null, layout: {}, lineage: [],
   compareTo: null, compareModel: null, evidence: emptyEvidence(), research: null, nav: 'map', mode: 'structure', selection: null, routeId: null, inspectorOpen: false, session: null,
-  save: 'saved', saveError: '', conflict: null, recovered: null, canUndo: false, canRedo: false, toast: null, placing: null, linkFrom: null, modal: null, loading: false, loadError: '',
+  save: 'saved', saveError: '', conflict: null, recovered: null, canUndo: false, canRedo: false, toast: null, placing: null, linkFrom: null, modal: null, insightDraft: null, spotlight: null, loading: false, loadError: '',
 };
 
 let state = initial;
@@ -297,7 +301,11 @@ export async function refreshResearch() {
 }
 
 // ---- navigation and selection ----------------------------------------------------------------------
-export function select(sel: Selection | null, open = true) { setState({ selection: sel, inspectorOpen: sel ? open : false }); saveView(); }
+export function select(sel: Selection | null, open = true) {
+  // While an insight is being captured, tapping a map item picks it instead of opening its details.
+  if (state.insightDraft) { if (sel) togglePick(sel.id); return; }
+  setState({ selection: sel, inspectorOpen: sel ? open : false }); saveView();
+}
 export function setNav(nav: Nav) { setState({ nav, inspectorOpen: false }); saveView(); }
 export function setMode(mode: Mode) { setState({ mode }); saveView(); }
 export function setRoute(routeId: string | null) { setState({ routeId }); saveView(); }
@@ -308,6 +316,25 @@ export function goToTarget(id: string) {
   if (!type) { toast('That item is not on this version of the map. The note keeps its original attachment.'); return; }
   setState({ nav: 'map', selection: { type, id }, inspectorOpen: true }); saveView();
 }
+
+// ---- insight capture on the map ----------------------------------------------------------------------
+export function startInsight() { setState({ nav: 'map', insightDraft: { picks: [], text: '' }, inspectorOpen: false, spotlight: null }); }
+export const cancelInsight = () => setState({ insightDraft: null });
+export const editInsightDraft = (patch: Partial<InsightDraft>) => setState((s) => ({ insightDraft: s.insightDraft && { ...s.insightDraft, ...patch } }));
+export function togglePick(id: string) {
+  const d = state.insightDraft; if (!d) return;
+  editInsightDraft({ picks: d.picks.includes(id) ? d.picks.filter((x) => x !== id) : [...d.picks, id] });
+}
+/** Saves the draft as an insight linked to the tapped boxes. An empty draft just closes. */
+export async function finishInsight() {
+  const d = state.insightDraft; if (!d) return;
+  if (!d.text.trim() && !d.picks.length) return cancelInsight();
+  const names = d.picks.map((id) => state.model?.nodes.find((n) => n.id === id)?.label ?? state.model?.edges.find((e) => e.id === id)?.label ?? id);
+  await createDoc('insights', { title: d.text.trim() ? '' : `About ${names.join(', ')}`.slice(0, 300), body: d.text.trim(), modelLinks: d.picks });
+  setState({ insightDraft: null });
+  toast(`Insight saved${d.picks.length ? ` with ${d.picks.length} linked item${d.picks.length === 1 ? '' : 's'}` : ''}`);
+}
+export const showOnMap = (insightId: string | null) => setState({ spotlight: insightId, ...(insightId ? { nav: 'map' as Nav, inspectorOpen: false, insightDraft: null } : {}) });
 
 // ---- evidence and decision records -----------------------------------------------------------------
 type Coll = keyof Evidence;

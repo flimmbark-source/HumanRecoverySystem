@@ -54,3 +54,12 @@ export async function expectCleanLabels(page: Page) {
   expect(problems).toEqual([]);
   return { labels, nodes };
 }
+/** Writes a text-only insight with the map's Insight button, then opens the Insights page. */
+export async function newInsight(page: Page, text: string) {
+  await page.getByTestId('nav-map').click();
+  await page.getByTestId('insight-mode').click();
+  await page.getByTestId('insight-text').fill(text);
+  await page.getByTestId('insight-text').press('Enter');
+  await expect(page.getByTestId('insight-bar')).toHaveCount(0);
+  await page.getByTestId('nav-insights').click();
+}

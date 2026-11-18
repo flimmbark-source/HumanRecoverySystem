@@ -63,6 +63,8 @@ export type Note = z.infer<typeof noteSchema>;
 export const insightSchema = z.object({
   id: idSchema, title: text(300), body: text(20000),
   modelLinks: z.array(idSchema).max(50).default([]),
+  // For a linked map item, the details the insight is about (keys from itemFacts). No entry means the whole item.
+  focus: z.record(idSchema, z.array(z.string().max(40)).max(30)).default({}),
   createdAt: text(40), updatedAt: text(40),
 });
 export type Insight = z.infer<typeof insightSchema>;

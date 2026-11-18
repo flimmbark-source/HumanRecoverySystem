@@ -1,5 +1,82 @@
 // How evidence relates to an insight or recommendation. Observations, interpretation and gaps stay separate.
+import { EDGE_TYPE_LABEL, NODE_KIND_LABEL, activityForEdge, fmtQty, type Model, type Quantity, type WActivity } from './model';
+import { ACTION_LABEL, describeEdge } from './sentence';
 import type { DecisionOption, EvidenceLink, Insight, Note, Opportunity } from './workspace';
+
+export interface Fact { key: string; label: string; value: string }
+export interface ItemFacts { id: string; type: 'node' | 'edge' | 'activity'; kind: string; name: string; facts: Fact[] }
+
+const minutes = (q: Quantity) => (q.value === null && q.min === undefined ? 'Unknown' : `${fmtQty(q)} min`);
+function activityFacts(m: Model, a: WActivity): Fact[] {
+  return [
+    { key: 'performer', label: 'Who does it', value: m.nodes.find((n) => n.id === a.performerId)?.label ?? 'Not identified' },
+    { key: 'action', label: 'Action', value: a.actionCode ? ACTION_LABEL[a.actionCode] : 'Not recorded' },
+    { key: 'active', label: 'Active time', value: minutes(a.activeMinutes) },
+    { key: 'waiting', label: 'Waiting time', value: minutes(a.waitMinutes) },
+    { key: 'occurrences', label: 'Times per case', value: fmtQty(a.occurrencesPerCase) },
+  ];
+}
+
+/** The details of a map item that an insight can point at, in reading order. Empty text fields are left out. */
+export function itemFacts(m: Model, id: string): ItemFacts | null {
+  const keep = (facts: Fact[]) => facts.filter((f) => f.value.trim());
+  const edge = m.edges.find((e) => e.id === id);
+  if (edge) {
+    const a = activityForEdge(m, edge.id), d = describeEdge(m, edge, a);
+    return {
+      id, type: 'edge', kind: `Connection · ${EDGE_TYPE_LABEL[edge.type]}`, name: edge.label,
+      facts: keep([
+        { key: 'sentence', label: 'What happens', value: d.sentence },
+        { key: 'route', label: 'From → to', value: `${d.from} → ${d.to}` },
+        ...(a ? activityFacts(m, a) : []),
+        { key: 'input', label: 'Goes in', value: [edge.workItem, edge.inputState && `(${edge.inputState})`].filter(Boolean).join(' ') },
+        { key: 'output', label: 'Comes out', value: [edge.result, edge.outputState && `(${edge.outputState})`].filter(Boolean).join(' ') },
+        { key: 'conditions', label: 'Conditions', value: edge.conditions },
+        { key: 'exceptions', label: 'Exceptions', value: edge.exceptions },
+        { key: 'description', label: 'Description', value: edge.description },
+      ]),
+    };
+  }
+  const node = m.nodes.find((n) => n.id === id);
+  if (node) {
+    const internal = m.activities.filter((a) => !a.edgeId && a.ownerNodeId === id).map((a) => a.label).join(', ');
+    return {
+      id, type: 'node', kind: `Node · ${NODE_KIND_LABEL[node.kind]}`, name: node.label,
+      facts: keep([
+        { key: 'role', label: 'Role', value: node.role },
+        { key: 'scope', label: 'Scope', value: node.scope === 'internal' ? 'Within the reviewed scope' : node.scope === 'external' ? 'External, with a direct interface' : 'Context only' },
+        { key: 'internal', label: 'Internal activities', value: internal },
+        { key: 'description', label: 'Description', value: node.description },
+      ]),
+    };
+  }
+  const act = m.activities.find((a) => a.id === id);
+  return act ? { id, type: 'activity', kind: 'Internal activity', name: act.label, facts: activityFacts(m, act) } : null;
+}
+
+// ---- supporting data suggested by shared words -------------------------------------------------------
+// Not AI: a transparent word match, so a reviewer can see exactly why something was suggested.
+const STOP = new Set('about above after again against also because been before being below between both could does doing down during each from further have having here into itself just more most much must only other over same should some such than that their them then there these they this those through under until very were what when where which while will with would your'.split(' '));
+const stem = (w: string) => w.replace(/(ings?|ed|es|s)$/, '');
+export const terms = (text: string) => new Set(text.toLowerCase().match(/[a-z]{4,}/g)?.filter((w) => !STOP.has(w)).map(stem) ?? []);
+
+export interface Suggestion { type: 'note' | 'item'; id: string; text: string; matched: string[]; score: number }
+
+/** Notes and map items that share words with the insight, best first. Already linked records are left out. */
+export function suggestSupport(text: string, notes: Note[], m: Model, linkedNoteIds: Set<string>, linkedItemIds: Set<string>, limit = 6): Suggestion[] {
+  const want = terms(text);
+  if (!want.size) return [];
+  const score = (candidate: string) => { const got = terms(candidate); const matched = [...want].filter((t) => got.has(t)); return { matched, score: matched.length / Math.sqrt(got.size + 1) }; };
+  const out: Suggestion[] = [];
+  for (const n of notes) if (!linkedNoteIds.has(n.id)) { const s = score(n.text); if (s.matched.length) out.push({ type: 'note', id: n.id, text: n.text, ...s }); }
+  for (const id of [...m.nodes.map((n) => n.id), ...m.edges.map((e) => e.id)]) {
+    if (linkedItemIds.has(id)) continue;
+    const f = itemFacts(m, id)!;
+    const s = score(`${f.name} ${f.facts.map((x) => x.value).join(' ')}`);
+    if (s.matched.length) out.push({ type: 'item', id, text: `${f.kind}: ${f.name}`, ...s });
+  }
+  return out.sort((a, b) => b.matched.length - a.matched.length || b.score - a.score).slice(0, limit);
+}
 
 export interface LinkedNote { note: Note; relation: EvidenceLink['relation']; linkId: string; via: string }
 
