@@ -14,6 +14,9 @@ import { audit, createBranch, createProject, deleteDoc, exportBundle, getBranch,
 import { parseImport } from '../shared/legacy';
 import { layoutSchema } from '../shared/model';
 import { projectMetaSchema } from '../shared/workspace';
+import { IMPORT_KINDS, mapItems, splitOffline } from '../shared/fieldnotes';
+import { proposalsFromOutput } from '../shared/fieldnotes-ai';
+import { splitFieldNotes } from './providers/anthropic';
 
 export const app = new Hono<Env>();
 const api = new Hono<Env>();
@@ -209,6 +212,58 @@ api.delete('/projects/:pid/branches/:bid', async (c) => {
     await audit(db, pid(c), c.get('user'), 'scenario.delete', 'branch', br.id, { name: br.name });
   });
   return c.json({ ok: true });
+});
+
+// ---- field notes import -----------------------------------------------------------------------------
+// The client splits on the phone without a network; these routes split with Claude and save a reviewed import.
+const modelFor = async (c: any, branchId: string | undefined) => { const b = await getBranch(pool, pid(c), branchId || 'baseline'); return { branch: b, model: (await getRevision(pool, pid(c), b.headRevisionId)).model }; };
+api.post('/projects/:pid/fieldnotes/split', async (c) => {
+  await need(c, 'editor');
+  const { text, branchId } = await body(c, z.object({ text: z.string().trim().min(1).max(400_000), branchId: z.string().max(64).optional() }));
+  const { model } = await modelFor(c, branchId);
+  const items = mapItems(model);
+  if (config.provider === 'fixture') return c.json({ method: 'fixture', proposals: splitOffline(text, model).map((p) => ({ ...p, why: 'Test splitter. No AI was used.' })) });
+  const key = config.userKeys ? c.req.header('x-claude-key')?.trim() : undefined;
+  if (config.provider !== 'anthropic' && !key) throw new HttpError(409, config.userKeys ? 'Add your Claude API key in Project settings to split with Claude.' : 'Claude is not set up on this server.');
+  try {
+    const out = await splitFieldNotes({ text, items }, { apiKey: key });
+    return c.json({ method: 'claude', proposals: proposalsFromOutput(text, out, items) });
+  } catch (e) { throw new HttpError(502, e instanceof Error ? e.message : 'Claude could not split these notes.'); }
+});
+const importedNote = z.object({
+  text: z.string().trim().min(1).max(8000), excerpt: z.string().max(8000).default(''),
+  kind: z.enum(IMPORT_KINDS), certainty: z.enum(['observed', 'reported', 'inferred']).nullable(),
+  targetId: z.string().max(64).nullable(), sourceId: z.string().max(80).nullable(), category: z.string().max(100).default(''),
+  start: z.number().int().min(-1), end: z.number().int().min(-1),
+});
+api.post('/projects/:pid/fieldnotes', async (c) => {
+  await need(c, 'editor');
+  const b = await body(c, z.object({
+    name: z.string().trim().min(1).max(200), text: z.string().min(1).max(400_000), method: z.enum(['phone', 'claude', 'fixture']),
+    branchId: z.string().max(64).optional(), sourceId: z.string().max(80).nullable().default(null),
+    // Sources to create, referred to from notes as "new:<key>".
+    newSources: z.array(z.object({ key: z.string().max(40), anonId: z.string().trim().min(1).max(200), type: z.string().max(40).default('interview'), participantRole: z.string().max(200).default('') })).max(50).default([]),
+    notes: z.array(importedNote).min(1).max(1000),
+  }));
+  const { branch } = await modelFor(c, b.branchId);
+  const user = c.get('user');
+  const result = await tx(async (db) => {
+    const created = new Map<string, string>();
+    const sources = [];
+    for (const s of b.newSources) { const d = await upsertDoc(db, pid(c), user, 'sources', { anonId: s.anonId, type: s.type, participantRole: s.participantRole, date: new Date().toISOString().slice(0, 10) }); created.set(`new:${s.key}`, d.id); sources.push(d); }
+    const src = (id: string | null) => (id && id.startsWith('new:') ? created.get(id) ?? null : id);
+    const imp = await upsertDoc(db, pid(c), user, 'imports', { name: b.name, text: b.text, sourceId: src(b.sourceId), method: b.method, noteCount: b.notes.length });
+    const notes = [];
+    for (const n of b.notes) {
+      notes.push(await upsertDoc(db, pid(c), user, 'notes', {
+        text: n.text, rawText: n.excerpt || n.text, kind: n.kind, certainty: n.certainty, sourceId: src(n.sourceId), targetId: n.targetId,
+        anchorBranchId: n.targetId ? branch.id : null, group: b.name.slice(0, 200), category: n.category, origin: { importId: imp.id, start: n.start, end: n.end },
+      }));
+    }
+    await audit(db, pid(c), user, 'fieldnotes.import', 'imports', imp.id, { notes: notes.length, method: b.method, placed: notes.filter((n) => n.targetId).length });
+    return { import: imp, sources, notes };
+  });
+  return c.json(result);
 });
 
 // ---- evidence and decisions ------------------------------------------------------------------------

@@ -19,4 +19,6 @@ export const config: typeof serverConfig = {
   runWorker: false,
   jobPollMs: 2000,
   allowDbReset: false,
+  // The researcher's own Claude key, saved on the phone, comes with each split request.
+  userKeys: true,
 };

@@ -56,9 +56,21 @@ export const noteSchema = z.object({
   anchorRevisionId: idSchema.nullable().default(null),
   episode: episodeSchema.nullable().default(null),
   excerptApproved: z.boolean().default(false), // this text may be sent to a provider and quoted in exports
+  // For a note split from imported field notes: the import and where its words sit in that document.
+  origin: z.object({ importId: idSchema, start: z.number().int().min(-1), end: z.number().int().min(-1) }).nullable().default(null),
   createdAt: text(40),
 });
 export type Note = z.infer<typeof noteSchema>;
+
+/** Field notes as imported, after names were replaced: the context each note came from. */
+export const importSchema = z.object({
+  id: idSchema, name: z.string().min(1).max(200), text: z.string().min(1).max(400_000),
+  sourceId: idSchema.nullable().default(null),
+  method: z.enum(['phone', 'claude', 'fixture']).default('phone'),
+  noteCount: z.number().int().min(0).default(0),
+  createdAt: text(40),
+});
+export type ImportRecord = z.infer<typeof importSchema>;
 
 export const insightSchema = z.object({
   id: idSchema, title: text(300), body: text(20000),
@@ -156,6 +168,7 @@ export const bundleSchema = z.object({
   options: z.array(optionSchema).max(2000).default([]),
   runs: z.array(runRecordSchema).max(500).default([]),
   candidates: z.array(candidateRecordSchema).max(5000).default([]),
+  imports: z.array(importSchema).max(2000).default([]),
 });
 export type Bundle = Omit<z.infer<typeof bundleSchema>, 'revisions'> & { revisions: Revision[] };
 
@@ -173,7 +186,7 @@ export function validateBundle(input: unknown): { bundle?: Bundle; issues: Valid
   const branchIds = ids('branches', b.branches), revIds = ids('revisions', b.revisions), sourceIds = ids('sources', b.sources);
   const noteIds = ids('notes', b.notes), insightIds = ids('insights', b.insights), oppIds = ids('opportunities', b.opportunities);
   const optionIds = ids('options', b.options), runIds = ids('runs', b.runs), candIds = ids('candidates', b.candidates);
-  ids('links', b.links);
+  ids('links', b.links); ids('imports', b.imports);
   const need = (set: Set<string>, id: string | null | undefined, path: string, what: string) => { if (id && !set.has(id)) issues.push({ path, message: `${what} "${id}" does not exist` }); };
 
   if (b.branches.filter((x) => x.kind === 'baseline').length !== 1) issues.push({ path: 'branches', message: 'a workspace needs exactly one baseline' });
