@@ -17,9 +17,9 @@ function activityFacts(m: Model, a: WActivity): Fact[] {
   ];
 }
 
-/** The details of a map item that an insight can point at, in reading order. Empty text fields are left out. */
-export function itemFacts(m: Model, id: string): ItemFacts | null {
-  const keep = (facts: Fact[]) => facts.filter((f) => f.value.trim());
+/** The details of a map item that an insight can point at, in reading order. Empty text fields are left out unless `all`. */
+export function itemFacts(m: Model, id: string, all = false): ItemFacts | null {
+  const keep = (facts: Fact[]) => (all ? facts : facts.filter((f) => f.value.trim()));
   const edge = m.edges.find((e) => e.id === id);
   if (edge) {
     const a = activityForEdge(m, edge.id), d = describeEdge(m, edge, a);

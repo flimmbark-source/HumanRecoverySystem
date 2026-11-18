@@ -1,19 +1,26 @@
-// Insights: captured on the map (Insight button, tap the boxes it is about, write the thought), and reviewed on the
-// Insights page with the linked items, the details picked within them, the evidence, and suggested supporting data.
-import { useEffect, useState } from 'react';
-import { canEdit, cancelInsight, createDoc, createScenario, deleteDocById, editInsightDraft, fail, finishInsight, getState, goToTarget, openModal, setNav, showOnMap, startInsight, toast, updateDoc, useStore, type V } from './store';
+// Insights: the researcher's thoughts, each a compact box that opens onto the map cards it is about, with the
+// details picked on those cards. A box opens the map for its insight; there the details panel picks more details.
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { addPendingToInsight, canEdit, cancelInsight, createDoc, createScenario, deleteDocById, editInsightDraft, editInsightsUi, endInsightCtx, fail, finishInsight, getState, openInsightOnMap, openModal, restoreInsightsScroll, setNav, setState, startInsight, toast, togglePending, updateDoc, useStore, type V } from './store';
 import { jumpTo, targetOptions } from './Capture';
-import { Empty, when } from './ui';
+import { EdgeLabelBox, NodeBox, TYPE_COLOR, DASH } from './Graph';
+import { Empty, Field } from './ui';
 import { EVIDENCE_LEVEL_LABEL, evidenceFor, insightTitle, itemFacts, notesForInsight, suggestSupport, terms, type Suggestion } from '../shared/evidence';
+import { EDGE_TYPES, type Model } from '../shared/model';
+import { NODE_H, labelWidth, nodeW } from '../shared/layout';
 import { RELATIONS, RELATION_LABEL, type Insight } from '../shared/workspace';
+
+const thought = (i: Pick<Insight, 'title' | 'body'>) => i.body.trim() || i.title.trim() || 'Untitled insight';
+const NOTE = 'note:';
 
 // ---- capture on the map ------------------------------------------------------------------------------
 async function save() { try { await finishInsight(); } catch (e) { fail(e); } }
 
 /** Starts capture; pressed again it saves what was picked or written, or just closes when there is nothing. */
 export function InsightButton() {
-  const draft = useStore((s) => s.insightDraft);
+  const draft = useStore((s) => s.insightDraft), ctx = useStore((s) => s.insightCtx);
   const has = !!draft && (!!draft.text.trim() || draft.picks.length > 0);
+  if (ctx) return null;
   return (
     <button className={`insight-btn${draft ? ' active' : ''}`} aria-pressed={!!draft} data-testid="insight-mode" onClick={() => (draft ? void save() : startInsight())}>
       ✦ {draft ? (has ? 'Save insight' : 'Cancel') : 'Insight'}
@@ -40,66 +47,154 @@ export function InsightBar() {
   );
 }
 
-/** On the map, while it shows the items behind one insight. */
-export function SpotlightBanner() {
-  const spotlight = useStore((s) => s.spotlight), insight = useStore((s) => s.evidence.insights.find((i) => i.id === s.spotlight));
-  if (!spotlight || !insight) return null;
+// ---- the map opened for one insight -----------------------------------------------------------------
+/** One floating button: Back to insight, or, with details picked, Add to insight. */
+export function InsightCtxButton() {
+  const ctx = useStore((s) => s.insightCtx), sheet = useStore((s) => s.inspectorOpen);
+  useEffect(() => {
+    // Escape and the Android Back button: an open details sheet on a phone closes first, then the mode ends.
+    const key = (e: KeyboardEvent) => {
+      const s = getState();
+      if (e.key !== 'Escape' || !s.insightCtx || s.modal || s.linkFrom || s.placing || s.insightDraft) return;
+      e.stopPropagation();
+      if (s.inspectorOpen && window.innerWidth <= 990) setState({ inspectorOpen: false });
+      else endInsightCtx();
+    };
+    document.addEventListener('keydown', key, true);
+    return () => document.removeEventListener('keydown', key, true);
+  }, []);
+  if (!ctx) return null;
+  const n = ctx.pending.length;
   return (
-    <div className="banner info" data-testid="spotlight-banner">
-      <span className="banner-text">Showing the items behind <b>{insightTitle(insight)}</b>. Other items are faded.</span>
-      <span><button className="linkbtn" onClick={() => { showOnMap(null); jumpTo('insight', insight.id); }}>Back to the insight</button><button className="linkbtn" onClick={() => showOnMap(null)}>Done</button></span>
+    <button className={`insight-fab${n ? ' add' : ''}${sheet ? ' over-sheet' : ''}`} data-back-closes="" data-testid="insight-fab" data-state={n ? 'add' : 'back'}
+      onClick={() => (n ? void addPendingToInsight().catch(fail) : endInsightCtx())}>
+      {n ? `✦ Add to insight (${n})` : '← Back to insight'}
+    </button>
+  );
+}
+
+/** True while the map is open for an insight. */
+export const useInsightCtx = () => useStore((s) => !!s.insightCtx);
+
+/**
+ * A recorded field or note in the details panel. While the map is open for an insight it is highlighted where it is
+ * shown: tapping it (or its ✦) selects it for the insight. Otherwise it renders its content unchanged.
+ */
+export function Pick({ item, k, label, inline, children }: { item: string; k: string; label: string; inline?: boolean; children: React.ReactNode }) {
+  const on = useStore((s) => !!s.insightCtx);
+  const added = useStore((s) => !!s.insightCtx && (s.evidence.insights.find((i) => i.id === s.insightCtx!.id)?.focus[item] ?? []).includes(k));
+  const picked = useStore((s) => !!s.insightCtx?.pending.some((p) => p.item === item && p.key === k));
+  if (!on) return <>{children}</>;
+  const toggle = () => { if (!added && canEdit()) togglePending(item, k); };
+  const Tag = inline ? 'span' : 'div';
+  return (
+    <Tag className={`pickable${inline ? ' inline' : ''}${picked ? ' picked' : ''}${added ? ' added' : ''}`} data-pick={k}
+      onClick={(e) => { const hit = (e.target as HTMLElement).closest('button,a,input,select,textarea,summary,label'); if (hit && e.currentTarget.contains(hit)) return; toggle(); }}>
+      {children}
+      <button type="button" className="pick-mark" aria-pressed={picked} disabled={added || !canEdit()} data-testid="pick-mark"
+        aria-label={added ? `${label} is on the insight's card` : picked ? `Unselect ${label}` : `Select ${label} for the insight`}
+        onClick={(e) => { e.stopPropagation(); toggle(); }}>{added ? '✓' : '✦'}</button>
+    </Tag>
+  );
+}
+
+/** At the top of the details panel while the map is open for an insight: the thought, and what is selected. */
+export function InsightDetailPicker({ itemId }: { itemId: string | null }) {
+  const ctx = useStore((s) => s.insightCtx), insight = useStore((s) => s.evidence.insights.find((i) => i.id === s.insightCtx?.id));
+  const model = useStore((s) => s.model)!, notes = useStore((s) => s.evidence.notes);
+  if (!ctx || !insight) return null;
+  const name = (item: string, key: string) => {
+    if (key.startsWith(NOTE)) return `Note: ${notes.find((n) => n.id === key.slice(NOTE.length))?.text.slice(0, 40) ?? 'deleted'}…`;
+    return itemFacts(model, item, true)?.facts.find((f) => f.key === key)?.label ?? key;
+  };
+  const where = (item: string) => (item === itemId ? '' : `${itemFacts(model, item)?.name ?? item} · `);
+  const onCard = itemId ? insight.focus[itemId] ?? [] : [];
+  return (
+    <section className="ctx-picker" data-testid="ctx-picker" aria-label="Details for the insight">
+      <p className="ctx-picker-head"><span aria-hidden="true">✦</span> <span className="ctx-thought">{thought(insight)}</span></p>
+      {ctx.pending.length > 0 ? (
+        <ul className="ctx-chips" aria-label="Selected details">{ctx.pending.map((p) => (
+          <li key={`${p.item}:${p.key}`} data-testid="ctx-selected" data-key={p.key}><span>{where(p.item)}{name(p.item, p.key)}</span>
+            <button className="iconbtn" aria-label={`Unselect ${name(p.item, p.key)}`} onClick={() => togglePending(p.item, p.key)}>✕</button></li>
+        ))}</ul>
+      ) : <p className="micro">{itemId ? 'Tap a highlighted detail or note below to select it.' : 'Select a box or a connection on the map, then tap the details that belong with this thought.'}</p>}
+      {onCard.length > 0 && <p className="micro ctx-oncard">On the card: {onCard.map((k) => name(itemId!, k)).join(' · ')}</p>}
+    </section>
+  );
+}
+
+// ---- map cards, as the map draws them ------------------------------------------------------------------
+const PAD = 14;
+function CardShape({ model, id, notes }: { model: Model; id: string; notes: number }) {
+  const n = model.nodes.find((x) => x.id === id);
+  if (n) {
+    const w = nodeW(n);
+    return (
+      <svg className="card-shape" viewBox={`${-w / 2 - 4} ${-NODE_H / 2 - PAD} ${w + 4 + PAD} ${NODE_H + PAD + 26}`} width={(w + 4 + PAD) * 0.82} role="img" aria-label={n.label}>
+        <g className="nodeSvg">{<NodeBox model={model} n={n} notes={notes} />}</g>
+      </svg>
+    );
+  }
+  const e = model.edges.find((x) => x.id === id);
+  if (e) {
+    const w = labelWidth(e.label), half = w / 2 + 26;
+    return (
+      <svg className="card-shape" viewBox={`${-half} -26 ${half * 2} 44`} width={half * 2 * 1.25} role="img" aria-label={e.label}>
+        <defs>{EDGE_TYPES.map((t) => <marker key={t} id={`card-arrow-${t}`} markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto" markerUnits="userSpaceOnUse"><path d="M1 1 L7 4.5 L1 8" fill="none" stroke={TYPE_COLOR[t]} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></marker>)}</defs>
+        <line x1={-half + 2} y1={-4} x2={half - 4} y2={-4} stroke={TYPE_COLOR[e.type]} strokeWidth={2.6} strokeDasharray={DASH[e.type]} markerEnd={e.directed ? `url(#card-arrow-${e.type})` : undefined} />
+        <g className="edgeLabel"><EdgeLabelBox model={model} e={e} /></g>
+      </svg>
+    );
+  }
+  const a = model.activities.find((x) => x.id === id);
+  if (a) return <span className="card-activity" role="img" aria-label={a.label}><b aria-hidden="true">◈</b> {a.label}</span>;
+  return <span className="card-missing">Not on this version of the map</span>;
+}
+
+function InsightCard({ insight, id, editing }: { insight: V<Insight>; id: string; editing: boolean }) {
+  const model = useStore((s) => s.model)!, notes = useStore((s) => s.evidence.notes), links = useStore((s) => s.evidence.links), sources = useStore((s) => s.evidence.sources);
+  const f = itemFacts(model, id, true), keys = insight.focus[id] ?? [];
+  const evidenceHere = notesForInsight(insight.id, notes, links).filter((l) => l.note.targetId === id).map((l) => l.note.id);
+  const noteIds = [...new Set([...keys.filter((k) => k.startsWith(NOTE)).map((k) => k.slice(NOTE.length)), ...evidenceHere])];
+  const facts = keys.filter((k) => !k.startsWith(NOTE)).map((k) => f?.facts.find((x) => x.key === k) ?? { key: k, label: k, value: '' });
+  const edge = model.edges.find((e) => e.id === id), name = (nid: string) => model.nodes.find((n) => n.id === nid)?.label ?? '?';
+  const setFocus = (next: string[]) => { const all = { ...insight.focus, [id]: next }; if (!next.length) delete all[id]; return updateDoc('insights', insight.id, { focus: all }); };
+  const dropFact = (key: string) => setFocus(keys.filter((k) => k !== key)).catch(fail);
+  const dropNote = async (noteId: string) => {
+    try {
+      await setFocus(keys.filter((k) => k !== `${NOTE}${noteId}`));
+      for (const l of notesForInsight(insight.id, notes, links).filter((x) => x.note.id === noteId)) await deleteDocById('links', l.linkId);
+    } catch (e) { fail(e); }
+  };
+  const unlink = () => { const rest = { ...insight.focus }; delete rest[id]; updateDoc('insights', insight.id, { modelLinks: insight.modelLinks.filter((x) => x !== id), focus: rest }).catch(fail); };
+  const open = () => openInsightOnMap(insight.id, id);
+  return (
+    <div className="ins-card" data-testid="insight-card" data-item={id} onClick={editing ? undefined : open}>
+      <button className="ins-card-open" aria-label={`Open ${f?.name ?? 'this item'} on the map`} onClick={(e) => { e.stopPropagation(); open(); }} data-testid="card-open">
+        <CardShape model={model} id={id} notes={notes.filter((n) => n.targetId === id).length} />
+      </button>
+      {edge && <p className="ins-card-route">{name(edge.from)} → {name(edge.to)}</p>}
+      {(facts.length > 0 || noteIds.length > 0) ? (
+        <ul className="card-details" data-testid="card-details">
+          {facts.map((x) => (
+            <li key={x.key} data-detail={x.key}><span className="cd-label">{x.label}</span><span className="cd-value">{x.value.trim() || 'Not recorded now'}</span>
+              {editing && <button className="iconbtn cd-remove" aria-label={`Remove ${x.label} from this card`} onClick={(e) => { e.stopPropagation(); void dropFact(x.key); }}>✕</button>}</li>
+          ))}
+          {noteIds.map((nid) => { const n = notes.find((x) => x.id === nid); return (
+            <li key={nid} className="cd-note" data-detail={`${NOTE}${nid}`}><span className="cd-label">✎ Note{n?.sourceId ? ` · ${sources.find((s) => s.id === n.sourceId)?.anonId ?? ''}` : ''}</span><span className="cd-value">{n ? n.text.slice(0, 200) : 'This note was deleted.'}</span>
+              {editing && <button className="iconbtn cd-remove" aria-label="Remove this note from the insight" onClick={(e) => { e.stopPropagation(); void dropNote(nid); }}>✕</button>}</li>
+          ); })}
+        </ul>
+      ) : <p className="micro card-empty">No details picked yet.</p>}
+      {editing && canEdit() && <button className="linkbtn danger" onClick={unlink} aria-label={`Unlink ${f?.name ?? 'this item'}`}>Unlink card</button>}
     </div>
   );
 }
 
-// ---- the Insights page -------------------------------------------------------------------------------
+// ---- editing an insight --------------------------------------------------------------------------------
 function Marked({ text, matched }: { text: string; matched: string[] }) {
   const want = new Set(matched);
   return <>{text.split(/([A-Za-z]{4,})/).map((part, i) => ([...terms(part)].some((t) => want.has(t)) ? <mark key={i}>{part}</mark> : part))}</>;
-}
-
-function LinkedItem({ insight, id }: { insight: V<Insight>; id: string }) {
-  const model = useStore((s) => s.model)!, notes = useStore((s) => s.evidence.notes), links = useStore((s) => s.evidence.links);
-  const ro = !canEdit(), f = itemFacts(model, id), focus = insight.focus[id] ?? [];
-  const unlink = () => { const rest = { ...insight.focus }; delete rest[id]; return updateDoc('insights', insight.id, { modelLinks: insight.modelLinks.filter((x) => x !== id), focus: rest }).catch(fail); };
-  if (!f) return (
-    <div className="linked-item historical" data-testid="linked-item"><div className="linked-item-head"><small>Not on this version of the map</small><b>{id}</b>{!ro && <button className="linkbtn danger" onClick={unlink}>Remove</button>}</div></div>
-  );
-  const toggle = (key: string) => {
-    const next = focus.includes(key) ? focus.filter((k) => k !== key) : [...focus, key];
-    const all = { ...insight.focus, [id]: next };
-    if (!next.length) delete all[id];
-    updateDoc('insights', insight.id, { focus: all }).catch(fail);
-  };
-  const linkedNotes = new Set(notesForInsight(insight.id, notes, links).map((l) => l.note.id));
-  const onItem = notes.filter((n) => n.targetId === id);
-  const row = (fact: (typeof f.facts)[number], on: boolean) => (
-    <div key={fact.key} className={`fact${on ? ' on' : ''}`} data-fact={fact.key}>
-      <dt>{fact.label}</dt><dd>{fact.value}</dd>
-      {!ro && <button className="iconbtn star" aria-pressed={on} aria-label={on ? `Stop highlighting ${fact.label}` : `Highlight ${fact.label} for this insight`} onClick={() => toggle(fact.key)}>{on ? '★' : '☆'}</button>}
-    </div>
-  );
-  return (
-    <div className="linked-item" data-item={id} data-testid="linked-item">
-      <div className="linked-item-head"><small>{f.kind}</small><b>{f.name}</b>
-        <span className="spacer" /><button className="linkbtn" onClick={() => goToTarget(id)}>Open</button>{!ro && <button className="linkbtn danger" aria-label={`Unlink ${f.name}`} onClick={unlink}>Unlink</button>}
-      </div>
-      {focus.length ? <dl className="facts">{f.facts.filter((x) => focus.includes(x.key)).map((x) => row(x, true))}</dl>
-        : <p className="micro">About the whole item.{!ro && ' Star the details this insight is about.'}</p>}
-      <details className="plain"><summary>{focus.length ? 'Other details' : 'Details'} ({f.facts.filter((x) => !focus.includes(x.key)).length})</summary>
-        <dl className="facts">{f.facts.filter((x) => !focus.includes(x.key)).map((x) => row(x, false))}</dl>
-      </details>
-      {onItem.length > 0 && (
-        <div className="item-notes"><small>Notes on this item</small>
-          <ul>{onItem.map((n) => (
-            <li key={n.id}><button className="linkbtn" onClick={() => jumpTo('note', n.id)}>{n.text.slice(0, 140)}</button>
-              {linkedNotes.has(n.id) ? <span className="chip ok">Evidence</span> : !ro && <button className="linkbtn" data-testid="use-as-evidence" onClick={() => createDoc('links', { fromType: 'insight', fromId: insight.id, toType: 'note', toId: n.id, relation: 'supports' }).catch(fail)}>Use as evidence</button>}
-            </li>
-          ))}</ul>
-        </div>
-      )}
-    </div>
-  );
 }
 
 function Suggestions({ insight, text }: { insight: V<Insight>; text: string }) {
@@ -134,32 +229,37 @@ function Suggestions({ insight, text }: { insight: V<Insight>; text: string }) {
   );
 }
 
-function InsightCard({ insight }: { insight: V<Insight> }) {
+function InsightEditor({ insight }: { insight: V<Insight> }) {
   const notes = useStore((s) => s.evidence.notes), links = useStore((s) => s.evidence.links), sources = useStore((s) => s.evidence.sources), opportunities = useStore((s) => s.evidence.opportunities);
-  const [title, setTitle] = useState(insight.title), [body, setBody] = useState(insight.body), [busy, setBusy] = useState(false);
-  const linked = notesForInsight(insight.id, notes, links);
-  const ev = evidenceFor([insight.id], [], notes, links);
-  const dirty = title !== insight.title || body !== insight.body;
-  const ro = !canEdit();
-  const saveText = async () => { setBusy(true); try { await updateDoc('insights', insight.id, { title, body }); toast('Insight saved'); } catch (e) { fail(e); } finally { setBusy(false); } };
+  const draft = useStore((s) => s.insightsUi.edits[insight.id]) ?? { title: insight.title, body: insight.body };
+  const [busy, setBusy] = useState(false);
+  const linked = notesForInsight(insight.id, notes, links), ev = evidenceFor([insight.id], [], notes, links);
+  const dirty = draft.title !== insight.title || draft.body !== insight.body;
+  // The draft lives in the store, so it survives a visit to the map and back.
+  const edit = (patch: Partial<typeof draft>) => setState((s) => ({ insightsUi: { ...s.insightsUi, edits: { ...s.insightsUi.edits, [insight.id]: { ...draft, ...patch } } } }));
+  const forget = () => setState((s) => { const edits = { ...s.insightsUi.edits }; delete edits[insight.id]; return { insightsUi: { ...s.insightsUi, edits } }; });
+  const close = () => { forget(); editInsightsUi({ editing: null }); };
+  const saveText = async (andClose: boolean) => {
+    setBusy(true);
+    try { await updateDoc('insights', insight.id, { title: draft.title, body: draft.body }); toast('Insight saved'); andClose ? close() : forget(); } catch (e) { fail(e); } finally { setBusy(false); }
+  };
   const toOpportunity = async () => {
-    try { const o = await createDoc('opportunities', { title: insightTitle({ ...insight, title, body }), insightIds: [insight.id], targetIds: insight.modelLinks }); setNav('decide'); setTimeout(() => document.querySelector(`[data-opportunity="${o.id}"]`)?.scrollIntoView({ block: 'start' }), 80); toast('Opportunity created from this insight'); } catch (e) { fail(e); }
+    try { const o = await createDoc('opportunities', { title: insightTitle(insight), insightIds: [insight.id], targetIds: insight.modelLinks }); setNav('decide'); setTimeout(() => document.querySelector(`[data-opportunity="${o.id}"]`)?.scrollIntoView({ block: 'start' }), 80); toast('Opportunity created from this insight'); } catch (e) { fail(e); }
   };
   return (
-    <article className="insight" data-insight={insight.id} data-testid="insight">
-      <header className="insight-head">
-        <span className={`chip ev-${ev.level}`} data-testid="insight-evidence">{EVIDENCE_LEVEL_LABEL[ev.level]}</span>
-        <span className="micro">{insight.modelLinks.length} linked item{insight.modelLinks.length === 1 ? '' : 's'} · {linked.length} note{linked.length === 1 ? '' : 's'} · updated {when(insight.updatedAt)}</span>
-      </header>
-      <input className="insight-title" value={title} disabled={ro} placeholder="Title (optional)" aria-label="Insight title" onChange={(e) => setTitle(e.target.value)} />
-      <textarea className="insight-body" rows={3} value={body} disabled={ro} placeholder="Write the thought as it is. No source, category or template needed." aria-label="Insight text" data-testid="insight-body" onChange={(e) => setBody(e.target.value)} />
-      {!ro && dirty && <div className="btnrow"><button className="primary" disabled={busy} onClick={saveText} data-testid="insight-save">Save changes</button><button className="linkbtn" onClick={() => { setTitle(insight.title); setBody(insight.body); }}>Discard</button></div>}
+    <div className="insight-editor" data-testid="insight-editor">
+      <Field label="The insight, in your words">
+        <textarea className="insight-body" rows={4} value={draft.body} placeholder="Write the thought as it is. No source, category or template needed." aria-label="Insight text" data-testid="insight-body" onChange={(e) => edit({ body: e.target.value })} /></Field>
+      <Field label="Short title (optional)">
+        <input className="insight-title" value={draft.title} placeholder="Title" aria-label="Insight title" onChange={(e) => edit({ title: e.target.value })} /></Field>
+      <div className="btnrow">
+        {dirty ? <><button className="primary" disabled={busy} onClick={() => saveText(true)} data-testid="insight-save">Save changes</button><button className="linkbtn" onClick={forget}>Discard changes</button></>
+          : <button onClick={close} data-testid="insight-done">Done</button>}
+      </div>
 
       <section className="insight-section">
-        <h4>Linked map items {insight.modelLinks.length > 0 && <button className="linkbtn" onClick={() => showOnMap(insight.id)} data-testid="show-on-map">Show on map</button>}</h4>
-        {!insight.modelLinks.length && <p className="micro">Not linked to the map. That is fine for an early thought.</p>}
-        <div className="linked-items" data-testid="insight-model-links">{insight.modelLinks.map((id) => <LinkedItem key={id} insight={insight} id={id} />)}</div>
-        {!ro && <select value="" aria-label="Link this insight to a map item" className="inline-select" onChange={(e) => e.target.value && updateDoc('insights', insight.id, { modelLinks: [...insight.modelLinks, e.target.value] }).catch(fail)}><option value="">Link another map item…</option>{targetOptions().filter((o) => !insight.modelLinks.includes(o.id)).map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}</select>}
+        <h4>Map cards</h4>
+        <select value="" aria-label="Link this insight to a map item" className="inline-select" onChange={(e) => e.target.value && updateDoc('insights', insight.id, { modelLinks: [...insight.modelLinks, e.target.value] }).catch(fail)}><option value="">Link another map item…</option>{targetOptions().filter((o) => !insight.modelLinks.includes(o.id)).map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}</select>
       </section>
 
       <section className="insight-section">
@@ -168,43 +268,97 @@ function InsightCard({ insight }: { insight: V<Insight> }) {
         <ul className="evlist">
           {linked.map((l) => (
             <li key={l.linkId} data-relation={l.relation} data-testid="insight-link">
-              {ro ? <span className={`rel rel-${l.relation}`}>{RELATION_LABEL[l.relation]}</span> : (
-                <select value={l.relation} aria-label="Relation" className={`rel rel-${l.relation}`} onChange={(e) => updateDoc('links', l.linkId, { relation: e.target.value }).catch(fail)}>{RELATIONS.map((r) => <option key={r} value={r}>{RELATION_LABEL[r]}</option>)}</select>
-              )}
+              <select value={l.relation} aria-label="Relation" className={`rel rel-${l.relation}`} onChange={(e) => updateDoc('links', l.linkId, { relation: e.target.value }).catch(fail)}>{RELATIONS.map((r) => <option key={r} value={r}>{RELATION_LABEL[r]}</option>)}</select>
               <button className="linkbtn" onClick={() => jumpTo('note', l.note.id)} data-testid="insight-note-link">{l.note.text.slice(0, 110)}</button>
               <em>{sources.find((s) => s.id === l.note.sourceId)?.anonId ?? 'no source'}{l.note.certainty ? ` · ${l.note.certainty}` : ''}</em>
-              {!ro && <button className="linkbtn danger" aria-label="Detach this note" data-testid="detach" onClick={() => deleteDocById('links', l.linkId).catch(fail)}>Detach</button>}
+              <button className="linkbtn danger" aria-label="Detach this note" data-testid="detach" onClick={() => deleteDocById('links', l.linkId).catch(fail)}>Detach</button>
             </li>
           ))}
         </ul>
         {ev.gaps.length > 0 && linked.length > 0 && <ul className="gaplist">{ev.gaps.map((g) => <li key={g}>{g}</li>)}</ul>}
-        {!ro && <button onClick={() => openModal('link', { fromType: 'insight', fromId: insight.id })} data-testid="insight-attach">Attach evidence</button>}
+        <button onClick={() => openModal('link', { fromType: 'insight', fromId: insight.id })} data-testid="insight-attach">Attach evidence</button>
       </section>
 
-      <Suggestions insight={insight} text={`${title} ${body}`} />
+      <Suggestions insight={insight} text={`${draft.title} ${draft.body}`} />
 
       {opportunities.filter((o) => o.insightIds.includes(insight.id)).map((o) => <p key={o.id} className="micro">Used in opportunity: <button className="linkbtn" onClick={() => setNav('decide')}>{o.title}</button></p>)}
-      {!ro && <footer className="btnrow insight-actions">
+      <footer className="btnrow insight-actions">
         <button onClick={toOpportunity} data-testid="insight-to-opportunity">Create opportunity</button>
-        <button onClick={() => createScenario(`Test: ${insightTitle({ ...insight, title, body }).slice(0, 60)}`, { fromBranchId: 'baseline', hypothesis: body, origin: { type: 'insight', id: insight.id } }).then(() => toast('Scenario branched from this insight')).catch(fail)} data-testid="insight-to-scenario">Test in a scenario</button>
+        <button onClick={() => createScenario(`Test: ${insightTitle(insight).slice(0, 60)}`, { fromBranchId: 'baseline', hypothesis: insight.body, origin: { type: 'insight', id: insight.id } }).then(() => toast('Scenario branched from this insight')).catch(fail)} data-testid="insight-to-scenario">Test in a scenario</button>
         <button onClick={() => openModal('deep', { insightId: insight.id })}>Deep research…</button>
-        <button className="linkbtn danger" onClick={async () => { if (confirm('Delete this insight? Notes linked to it are kept.')) await deleteDocById('insights', insight.id).catch(fail); }}>Delete</button>
-      </footer>}
+        <button className="linkbtn danger" onClick={async () => { if (confirm('Delete this insight? Notes linked to it are kept.')) { await deleteDocById('insights', insight.id).catch(fail); close(); } }}>Delete</button>
+      </footer>
+    </div>
+  );
+}
+
+// ---- the Insights page -------------------------------------------------------------------------------
+function InsightBox({ insight }: { insight: V<Insight> }) {
+  const notes = useStore((s) => s.evidence.notes), links = useStore((s) => s.evidence.links);
+  const open = useStore((s) => s.insightsUi.expanded === insight.id), editing = useStore((s) => s.insightsUi.editing === insight.id && canEdit());
+  const unsaved = useStore((s) => !!s.insightsUi.edits[insight.id]);
+  const ev = evidenceFor([insight.id], [], notes, links), cards = insight.modelLinks.length;
+  const words = thought(insight), sub = insight.body.trim() && insight.title.trim() ? insight.title.trim() : '';
+  const toggle = () => editInsightsUi({ expanded: open ? null : insight.id, ...(open ? { editing: null } : {}) });
+  return (
+    <article className={`insight-box${open ? ' open' : ''}`} data-insight={insight.id} data-testid="insight" data-expanded={open}>
+      <div className="ib-head">
+        <button className="ib-thought" aria-expanded={open} onClick={toggle} data-testid="insight-toggle">
+          <span className="ib-text" data-testid="insight-thought">{words}</span>
+          {sub && <span className="ib-title">{sub}</span>}
+          <span className="ib-meta">{cards ? `${cards} card${cards === 1 ? '' : 's'}` : 'Text only'} · <span className={`ev-${ev.level}`} data-testid="insight-evidence">{EVIDENCE_LEVEL_LABEL[ev.level]}</span>{unsaved && ' · unsaved edit'}</span>
+        </button>
+        <button className="ib-map" onClick={() => openInsightOnMap(insight.id)} data-testid="show-on-map">✦ Show on map</button>
+      </div>
+      {open && (
+        <div className="ib-body">
+          {canEdit() && !editing && <div className="btnrow"><button onClick={() => editInsightsUi({ editing: insight.id })} data-testid="insight-edit">Edit</button></div>}
+          {editing && <InsightEditor insight={insight} />}
+          <div className="ins-cards" data-testid="insight-model-links">
+            {insight.modelLinks.map((id) => <InsightCard key={id} insight={insight} id={id} editing={editing} />)}
+          </div>
+          {!cards && <p className="micro">No map cards yet. Show on map, select a box or a line, and add the details this thought is about.</p>}
+        </div>
+      )}
     </article>
   );
 }
 
+/** Writing a new insight straight on the page. The text is kept while the researcher looks elsewhere. */
+function NewInsight() {
+  const text = useStore((s) => s.insightsUi.newText) ?? '';
+  const [busy, setBusy] = useState(false);
+  const ref = useRef<HTMLTextAreaElement>(null);
+  // Focus a freshly opened writer; a draft coming back into view must not move the page.
+  useEffect(() => { if (!getState().insightsUi.newText) ref.current?.focus({ preventScroll: true }); }, []);
+  const saveNew = async () => {
+    if (!text.trim()) return;
+    setBusy(true);
+    try { const doc = await createDoc('insights', { title: '', body: text.trim(), modelLinks: [] }); editInsightsUi({ newText: null, expanded: doc.id, editing: null }); toast('Insight saved'); } catch (e) { fail(e); } finally { setBusy(false); }
+  };
+  return (
+    <div className="insight-new" data-testid="insight-new-form">
+      <textarea ref={ref} rows={3} value={text} placeholder="Write the thought in your own words. Map cards and evidence can come later." aria-label="New insight" data-testid="insight-new-text"
+        onChange={(e) => editInsightsUi({ newText: e.target.value })} onKeyDown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); void saveNew(); } if (e.key === 'Escape') editInsightsUi({ newText: null }); }} />
+      <div className="btnrow"><button className="primary" disabled={busy || !text.trim()} onClick={saveNew} data-testid="insight-new-save">Save insight</button><button className="linkbtn" onClick={() => editInsightsUi({ newText: null })}>Cancel</button></div>
+    </div>
+  );
+}
+
 export function Insights() {
-  const insights = useStore((s) => s.evidence.insights), notes = useStore((s) => s.evidence.notes), links = useStore((s) => s.evidence.links);
+  const insights = useStore((s) => s.evidence.insights), notes = useStore((s) => s.evidence.notes), links = useStore((s) => s.evidence.links), writing = useStore((s) => s.insightsUi.newText !== null);
+  // Back from the map: the page opens where the researcher left it.
+  useLayoutEffect(() => { restoreInsightsScroll(); }, []);
   const levels = insights.map((i) => evidenceFor([i.id], [], notes, links).level);
   const count = (l: string) => levels.filter((x) => x === l).length;
   return (
     <div className="page" data-testid="insights">
-      <header className="page-head"><div><h1>Insights</h1><p>Working interpretations, with the map items and details each one is about and the evidence behind it.</p></div>
-        {canEdit() && <button className="primary" onClick={startInsight} data-testid="insight-start">✦ New insight on the map</button>}</header>
+      <header className="page-head"><div><h1>Insights</h1><p>Your working thoughts, each with the map cards and details it is about.</p></div>
+        {canEdit() && <div className="btnrow"><button className="primary" onClick={() => editInsightsUi({ newText: '' })} disabled={writing} data-testid="insight-new">+ New insight</button><button onClick={() => startInsight('insights')} data-testid="insight-start">✦ From the map</button></div>}</header>
+      {writing && <NewInsight />}
       {insights.length > 0 && <p className="insight-summary micro">{insights.length} insight{insights.length === 1 ? '' : 's'} · {count('supported')} with several supporting sources · {count('thin')} thin · {count('contested')} contested · {count('none')} without evidence</p>}
-      {!insights.length && <Empty title="No insights yet">On the map, press ✦ Insight, tap the boxes the insight is about, then write it and press Enter. An insight can also be text only.</Empty>}
-      <div className="insights">{[...insights].reverse().map((i) => <InsightCard key={i.id} insight={i} />)}</div>
+      {!insights.length && !writing && <Empty title="No insights yet">Press New insight to write one, or From the map to tap the boxes it is about first.</Empty>}
+      <div className="insights">{[...insights].reverse().map((i) => <InsightBox key={i.id} insight={i} />)}</div>
     </div>
   );
 }

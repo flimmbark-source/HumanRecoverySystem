@@ -87,13 +87,39 @@ async function run() {
   await device.screenshot({ path: `${OUT}/2-save-dialog.png` });
   await back();
 
+  step('an insight opened on the map takes a detail, and Back returns to the open insight');
+  await p.getByTestId('nav-insights').click();
+  await p.getByTestId('insight-new').click();
+  await p.getByTestId('insight-new-text').fill('Written on an Android phone.');
+  await p.getByTestId('insight-new-save').click();
+  const insight = p.getByTestId('insight').filter({ hasText: 'Written on an Android phone.' });
+  await insight.getByTestId('show-on-map').click();
+  await p.locator('.canvas-wrap.insight-ctx').waitFor();
+  await p.getByRole('button', { name: 'Fit the whole map' }).click();
+  await p.locator('[data-node]').first().click();
+  await p.locator('.right [data-pick] > [data-testid=pick-mark]:not([disabled])').first().click();
+  await p.locator('[data-testid=insight-fab][data-state=add]').click();
+  await p.locator('[data-testid=insight-fab][data-state=back]').waitFor();
+  await device.screenshot({ path: `${OUT}/3-insight-on-map.png` });
+  // Back closes the details sheet first, then leaves the map for the insight (a keyboard may take one more press).
+  for (let presses = 1; ; presses++) {
+    await back();
+    if (await p.getByTestId('insights').waitFor({ timeout: 3_000 }).then(() => true, () => false)) break;
+    if (presses === 4) throw new Error('Back did not return to the insight.');
+  }
+  await insight.getByTestId('card-details').waitFor();
+  if ((await insight.getAttribute('data-expanded')) !== 'true') throw new Error('The insight was not left open.');
+
   step('the data is still there after the app restarts');
   p = await restart();
   await p.getByTestId('projects').waitFor({ timeout: 120_000 });
   await p.locator('[data-project="Volunteer placement (synthetic demo)"]').click();
   await p.getByTestId('nav-notes').click();
   await p.getByText('Captured on an Android phone.').first().waitFor({ timeout: 30_000 });
-  await device.screenshot({ path: `${OUT}/3-notes-after-restart.png` });
+  await device.screenshot({ path: `${OUT}/4-notes-after-restart.png` });
+  await p.getByTestId('nav-insights').click();
+  await p.getByTestId('insight').filter({ hasText: 'Written on an Android phone.' }).getByTestId('insight-toggle').click();
+  await p.getByTestId('insight').filter({ hasText: 'Written on an Android phone.' }).getByTestId('card-details').waitFor();
 
   if (errors.length) throw new Error(`The page reported errors:\n${errors.join('\n')}`);
 }

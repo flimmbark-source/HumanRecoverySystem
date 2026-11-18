@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { itemFacts, suggestSupport } from '../../src/shared/evidence';
-import type { Note } from '../../src/shared/workspace';
+import { insightSchema, type Note } from '../../src/shared/workspace';
 import { fixtureModel } from './helpers';
 
 const note = (id: string, text: string) => ({ id, text }) as Note;
@@ -14,6 +14,10 @@ describe('details and suggested support for insights', () => {
     expect(f.facts.every((x) => x.value.trim())).toBe(true);
     expect(itemFacts(m, 'n3')).toMatchObject({ type: 'node', name: 'Coordinator' });
     expect(itemFacts(m, 'not-there')).toBeNull();
+    // a detail picked earlier stays listable after its field is emptied
+    const emptied = { ...m, edges: m.edges.map((e) => (e.id === 'e3' ? { ...e, exceptions: '' } : e)) };
+    expect(itemFacts(emptied, 'e3')!.facts.some((x) => x.key === 'exceptions')).toBe(false);
+    expect(itemFacts(emptied, 'e3', true)!.facts.find((x) => x.key === 'exceptions')).toMatchObject({ value: '' });
   });
 
   it('suggests notes and map items that share words, says which words, and skips what is already linked', () => {
@@ -28,5 +32,14 @@ describe('details and suggested support for insights', () => {
     expect(rest.some((s) => s.id === 'a' || linkedItems.has(s.id))).toBe(false);
     expect(rest.some((s) => s.id === 'c')).toBe(true);
     expect(suggestSupport('the and of', notes, m, new Set(), new Set())).toEqual([]);
+  });
+});
+
+describe('insight details saved with their card', () => {
+  it('stores record fields and notes under the map item they were picked on', () => {
+    const note = `note:${'n'.repeat(64)}`;
+    const ok = insightSchema.safeParse({ id: 'i1', title: '', body: 'x', modelLinks: ['e3'], focus: { e3: ['waiting', note] }, createdAt: 'now', updatedAt: 'now' });
+    expect(ok.success).toBe(true);
+    expect(insightSchema.safeParse({ id: 'i1', title: '', body: 'x', focus: { 'not an id!': ['waiting'] }, createdAt: 'now', updatedAt: 'now' }).success).toBe(false);
   });
 });

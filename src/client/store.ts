@@ -18,7 +18,11 @@ export interface CandidateRow { id: string; runId: string | null; origin: string
 export interface RunRow { id: string; mode: 'wide' | 'deep'; status: string; question: string; provider: string; input: any; result: any; error: string; attempts: number; maxAttempts: number; createdAt: string; finishedAt: string | null }
 export interface ProviderStatus { id: string; label: string; synthetic: boolean; available: boolean; reason: string }
 export type SaveState = 'saved' | 'dirty' | 'saving' | 'failed' | 'conflict';
-export interface InsightDraft { picks: string[]; text: string }
+export interface InsightDraft { picks: string[]; text: string; from: 'map' | 'insights' }
+/** The map opened for one insight: details picked in the details panel wait in `pending` until added. */
+export interface InsightCtx { id: string; pending: { item: string; key: string }[]; frame: string[]; frameKey: number }
+/** The Insights page as the researcher left it, kept while they visit the map. */
+export interface InsightsUi { expanded: string | null; editing: string | null; scroll: number; newText: string | null; edits: Record<string, { title: string; body: string }> }
 
 export interface State {
   user: { id: string; name: string; email: string } | null;
@@ -48,7 +52,8 @@ export interface State {
   placing: string | null; linkFrom: string | null; modal: { kind: string; data?: any } | null;
   // Insight capture on the map: the boxes tapped, in order, and the text.
   insightDraft: InsightDraft | null;
-  spotlight: string | null; // insight whose linked items the map is showing
+  insightCtx: InsightCtx | null;
+  insightsUi: InsightsUi;
   loading: boolean; loadError: string;
 }
 
@@ -56,7 +61,7 @@ const emptyEvidence = (): Evidence => ({ sources: [], notes: [], insights: [], l
 const initial: State = {
   user: null, authChecked: false, project: null, role: 'reader', members: [], branches: [], provider: null, branchId: 'baseline', revision: null, model: null, layout: {}, lineage: [],
   compareTo: null, compareModel: null, evidence: emptyEvidence(), research: null, nav: 'map', mode: 'structure', selection: null, routeId: null, inspectorOpen: false, session: null,
-  save: 'saved', saveError: '', conflict: null, recovered: null, canUndo: false, canRedo: false, toast: null, placing: null, linkFrom: null, modal: null, insightDraft: null, spotlight: null, loading: false, loadError: '',
+  save: 'saved', saveError: '', conflict: null, recovered: null, canUndo: false, canRedo: false, toast: null, placing: null, linkFrom: null, modal: null, insightDraft: null, insightCtx: null, insightsUi: { expanded: null, editing: null, scroll: 0, newText: null, edits: {} }, loading: false, loadError: '',
 };
 
 let state = initial;
@@ -306,7 +311,12 @@ export function select(sel: Selection | null, open = true) {
   if (state.insightDraft) { if (sel) togglePick(sel.id); return; }
   setState({ selection: sel, inspectorOpen: sel ? open : false }); saveView();
 }
-export function setNav(nav: Nav) { setState({ nav, inspectorOpen: false }); saveView(); }
+export function setNav(nav: Nav) {
+  rememberInsightsScroll();
+  // Leaving the map ends an insight's map mode; the Insights page keeps the open insight and its scroll.
+  if (state.insightCtx && nav !== 'map') { endInsightCtx(nav === 'insights'); if (nav === 'insights') return; }
+  setState({ nav, inspectorOpen: false }); saveView();
+}
 export function setMode(mode: Mode) { setState({ mode }); saveView(); }
 export function setRoute(routeId: string | null) { setState({ routeId }); saveView(); }
 export function setSession(session: CaptureSession | null) { setState({ session }); saveView(); }
@@ -318,23 +328,100 @@ export function goToTarget(id: string) {
 }
 
 // ---- insight capture on the map ----------------------------------------------------------------------
-export function startInsight() { setState({ nav: 'map', insightDraft: { picks: [], text: '' }, inspectorOpen: false, spotlight: null }); }
-export const cancelInsight = () => setState({ insightDraft: null });
+export function startInsight(from: InsightDraft['from'] = 'map') {
+  if (state.insightCtx) endInsightCtx(false);
+  if (from === 'insights') rememberInsightsScroll();
+  setState({ nav: 'map', insightDraft: { picks: [], text: '', from }, inspectorOpen: false, selection: null });
+}
+export function cancelInsight() {
+  const from = state.insightDraft?.from;
+  setState({ insightDraft: null });
+  if (from === 'insights') setState({ nav: 'insights' });
+}
 export const editInsightDraft = (patch: Partial<InsightDraft>) => setState((s) => ({ insightDraft: s.insightDraft && { ...s.insightDraft, ...patch } }));
 export function togglePick(id: string) {
   const d = state.insightDraft; if (!d) return;
   editInsightDraft({ picks: d.picks.includes(id) ? d.picks.filter((x) => x !== id) : [...d.picks, id] });
 }
+const itemName = (id: string) => state.model?.nodes.find((n) => n.id === id)?.label ?? state.model?.edges.find((e) => e.id === id)?.label ?? state.model?.activities.find((a) => a.id === id)?.label ?? id;
 /** Saves the draft as an insight linked to the tapped boxes. An empty draft just closes. */
 export async function finishInsight() {
   const d = state.insightDraft; if (!d) return;
   if (!d.text.trim() && !d.picks.length) return cancelInsight();
-  const names = d.picks.map((id) => state.model?.nodes.find((n) => n.id === id)?.label ?? state.model?.edges.find((e) => e.id === id)?.label ?? id);
-  await createDoc('insights', { title: d.text.trim() ? '' : `About ${names.join(', ')}`.slice(0, 300), body: d.text.trim(), modelLinks: d.picks });
+  const doc = await createDoc('insights', { title: d.text.trim() ? '' : `About ${d.picks.map(itemName).join(', ')}`.slice(0, 300), body: d.text.trim(), modelLinks: d.picks });
   setState({ insightDraft: null });
+  // Started from the Insights page: go back there with the new insight open.
+  if (d.from === 'insights') setState((s) => ({ nav: 'insights', insightsUi: { ...s.insightsUi, expanded: doc.id, scroll: -1 } }));
   toast(`Insight saved${d.picks.length ? ` with ${d.picks.length} linked item${d.picks.length === 1 ? '' : 's'}` : ''}`);
 }
-export const showOnMap = (insightId: string | null) => setState({ spotlight: insightId, ...(insightId ? { nav: 'map' as Nav, inspectorOpen: false, insightDraft: null } : {}) });
+
+// ---- the map opened for one insight -----------------------------------------------------------------
+export const editInsightsUi = (patch: Partial<InsightsUi>) => setState((s) => ({ insightsUi: { ...s.insightsUi, ...patch } }));
+const scroller = () => document.querySelector<HTMLElement>('.main');
+function rememberInsightsScroll() { if (state.nav === 'insights') editInsightsUi({ scroll: scroller()?.scrollTop ?? 0 }); }
+/** Restores the Insights page scroll after a visit to the map (-1: bring the open insight into view). */
+export function restoreInsightsScroll() {
+  const want = state.insightsUi.scroll, el = scroller(); if (!el) return;
+  if (want >= 0) el.scrollTop = want;
+  else document.querySelector(`[data-insight="${state.insightsUi.expanded}"]`)?.scrollIntoView({ block: 'center' });
+}
+const typeOf = (id: string): Selection['type'] | null => { const m = state.model; return !m ? null : m.nodes.some((n) => n.id === id) ? 'node' : m.edges.some((e) => e.id === id) ? 'edge' : m.activities.some((a) => a.id === id) ? 'activity' : null; };
+/** The map items to frame for a set of linked items: connections bring their two ends, activities their node. */
+export function frameIds(ids: string[]) {
+  const m = state.model; if (!m) return [];
+  return ids.flatMap((id) => { const e = m.edges.find((x) => x.id === id); if (e) return [e.from, e.to]; const a = m.activities.find((x) => x.id === id); if (a) return a.ownerNodeId ? [a.ownerNodeId] : []; return m.nodes.some((n) => n.id === id) ? [id] : []; });
+}
+/** Opens the map for an insight: framed on the whole group, or on one card's item with its details open. */
+export function openInsightOnMap(insightId: string, itemId?: string) {
+  const insight = state.evidence.insights.find((i) => i.id === insightId); if (!insight) return;
+  rememberInsightsScroll();
+  const type = itemId ? typeOf(itemId) : null;
+  if (itemId && !type) { toast('That item is not on this version of the map.'); return; }
+  const first = !state.insightCtx || state.insightCtx.id !== insightId;
+  if (first && history.state?.weaveInsight !== true) history.pushState({ ...history.state, weaveInsight: true }, '');
+  setState((s) => ({
+    nav: 'map', insightDraft: null, insightsUi: { ...s.insightsUi, expanded: insightId },
+    insightCtx: { id: insightId, pending: first ? [] : s.insightCtx!.pending, frame: frameIds(itemId ? [itemId] : insight.modelLinks), frameKey: (s.insightCtx?.frameKey ?? 0) + 1 },
+    ...(type ? { selection: { type, id: itemId! }, inspectorOpen: true } : { selection: null, inspectorOpen: false }),
+  }));
+  saveView();
+}
+/** Ends the mode: pending picks are dropped, added details stay. By default it returns to the open insight. */
+export function endInsightCtx(back = true) {
+  if (!state.insightCtx) return;
+  setState({ insightCtx: null, inspectorOpen: false });
+  if (history.state?.weaveInsight === true) { ignorePop = true; history.back(); }
+  if (back) { setState({ nav: 'insights' }); saveView(); }
+}
+let ignorePop = false;
+// The browser Back button leaves the mode like the Back to insight button does.
+window.addEventListener('popstate', () => { if (ignorePop) { ignorePop = false; return; } if (state.insightCtx) endInsightCtx(); });
+export function togglePending(item: string, key: string) {
+  setState((s) => {
+    const c = s.insightCtx; if (!c) return {};
+    const has = c.pending.some((p) => p.item === item && p.key === key);
+    return { insightCtx: { ...c, pending: has ? c.pending.filter((p) => !(p.item === item && p.key === key)) : [...c.pending, { item, key }] } };
+  });
+}
+/** Adds the picked details to their cards (linking the cards' items when needed), and notes as evidence. */
+export async function addPendingToInsight() {
+  const c = state.insightCtx; if (!c || !c.pending.length) return;
+  const insight = state.evidence.insights.find((i) => i.id === c.id); if (!insight) return;
+  const focus: Record<string, string[]> = { ...insight.focus }, modelLinks = [...insight.modelLinks];
+  for (const { item, key } of c.pending) {
+    if (!modelLinks.includes(item)) modelLinks.push(item);
+    if (!(focus[item] ?? []).includes(key)) focus[item] = [...(focus[item] ?? []), key];
+  }
+  const n = c.pending.length;
+  setState({ insightCtx: { ...c, pending: [] } });
+  await updateDoc('insights', insight.id, { focus, modelLinks });
+  const linked = new Set(state.evidence.links.filter((l) => (l.fromId === insight.id && l.toType === 'note') || (l.toId === insight.id && l.fromType === 'note')).map((l) => (l.fromId === insight.id ? l.toId : l.fromId)));
+  for (const { key } of c.pending) {
+    const noteId = key.startsWith('note:') ? key.slice(5) : null;
+    if (noteId && !linked.has(noteId)) { linked.add(noteId); await createDoc('links', { fromType: 'insight', fromId: insight.id, toType: 'note', toId: noteId, relation: 'supports' }); }
+  }
+  toast(`Added ${n} detail${n === 1 ? '' : 's'} to the insight`);
+}
 
 // ---- evidence and decision records -----------------------------------------------------------------
 type Coll = keyof Evidence;

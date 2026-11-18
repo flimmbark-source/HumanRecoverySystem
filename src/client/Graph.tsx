@@ -8,9 +8,9 @@ import { diffModels } from '../shared/diff';
 import { analyzeRoute } from '../shared/routes';
 
 export const TYPE_COLOR: Record<EdgeType, string> = { flow: '#567fa7', info: '#3f8f81', dependency: '#a8823c', authority: '#8a6fa0', association: '#7f8b93' };
-const DASH: Record<EdgeType, string> = { flow: '', info: '8 6', dependency: '2 6', authority: '11 3 2 3', association: '5 5' };
-const LABEL_FILL: Record<EdgeType, string> = { flow: '#f1f6fc', info: '#eff9f5', dependency: '#fffaef', authority: '#f6f2fa', association: '#f4f5f6' };
-const PALETTE: Record<NodeKind, [string, string, string]> = { person: ['#e1f2e7', '#f6fbf7', '#8bc3a3'], system: ['#dbe9fa', '#f5f9fd', '#85abd1'], output: ['#f9ead2', '#fffbf4', '#d3a96a'], group: ['#eee7f6', '#faf8fd', '#ad99ca'], resource: ['#e5edef', '#f7fafb', '#9cafb8'] };
+export const DASH: Record<EdgeType, string> = { flow: '', info: '8 6', dependency: '2 6', authority: '11 3 2 3', association: '5 5' };
+export const LABEL_FILL: Record<EdgeType, string> = { flow: '#f1f6fc', info: '#eff9f5', dependency: '#fffaef', authority: '#f6f2fa', association: '#f4f5f6' };
+export const PALETTE: Record<NodeKind, [string, string, string]> = { person: ['#e1f2e7', '#f6fbf7', '#8bc3a3'], system: ['#dbe9fa', '#f5f9fd', '#85abd1'], output: ['#f9ead2', '#fffbf4', '#d3a96a'], group: ['#eee7f6', '#faf8fd', '#ad99ca'], resource: ['#e5edef', '#f7fafb', '#9cafb8'] };
 export const KIND_ICON: Record<NodeKind, string> = { person: '◉', system: '▦', output: '◇', group: '❖', resource: '▤' };
 const LEGEND_KEY = 'weave:map-legend';
 
@@ -60,6 +60,35 @@ function Token({ model, layout }: { model: Model; layout: Layout }) {
   );
 }
 
+/** A node's box as drawn on the map, centred on 0,0. The Insights page draws its cards with it too. */
+export function NodeBox({ model, n, notes }: { model: Model; n: WNode; notes: number }) {
+  const w = nodeW(n), [tile, fill, stroke] = PALETTE[n.kind], lines = wrapNodeLabel(n.label, 16), sub = n.role || n.kind;
+  const internal = model.activities.filter((a) => !a.edgeId && a.ownerNodeId === n.id).length;
+  return (<>
+    <rect className="base" x={-w / 2} y={-NODE_H / 2} width={w} height={NODE_H} rx={14} fill={fill} stroke={stroke} strokeDasharray={n.scope === 'external' ? '6 4' : n.scope === 'context' ? '2 4' : undefined} />
+    <rect x={-w / 2} y={-NODE_H / 2 + 8} width={5} height={NODE_H - 16} rx={2} fill={stroke} />
+    <rect x={-w / 2 + 12} y={-NODE_H / 2 + 12} width={30} height={30} rx={8} fill={tile} />
+    <text x={-w / 2 + 27} y={-NODE_H / 2 + 33} textAnchor="middle" className="nodeicon">{KIND_ICON[n.kind]}</text>
+    <text x={-w / 2 + 50} y={lines.length > 1 ? -13 : -5} className="name">{lines.map((ln, i) => <tspan key={i} x={-w / 2 + 50} dy={i ? 16 : 0}>{ln}</tspan>)}</text>
+    <text x={-w / 2 + 50} y={lines.length > 1 ? 26 : 18} className="subtitle">{sub.length > 18 ? sub.slice(0, 17) + '…' : sub}</text>
+    <title>{`${n.label}${n.role ? ` · ${n.role}` : ''}`}</title>
+    {n.scope !== 'internal' && (<g className="scope-tag" transform={`translate(${-w / 2 + 5} ${NODE_H / 2 + 9})`}><rect x={0} y={-2} width={70} height={17} rx={7} fill="#fef7e9" stroke="#dfc79e" /><text x={35} y={10} textAnchor="middle">{n.scope === 'external' ? 'EXTERNAL' : 'CONTEXT'}</text></g>)}
+    {internal > 0 && <text x={n.scope !== 'internal' ? -w / 2 + 84 : -w / 2 + 8} y={NODE_H / 2 + 19} className="internal-count">◈ {internal} internal {internal === 1 ? 'activity' : 'activities'}</text>}
+    {notes > 0 && (<g className="note-pin" data-pin-for={n.id} transform={`translate(${w / 2 - 2} ${-NODE_H / 2 - 3})`} role="img" aria-label={`${notes} note${notes === 1 ? '' : 's'}`}><circle r={11} fill="#f6ce79" /><text y={4} textAnchor="middle">{notes}</text></g>)}
+  </>);
+}
+
+/** A connection's label box as drawn on the map, centred on 0,0. */
+export function EdgeLabelBox({ model, e, selected = false }: { model: Model; e: WEdge; selected?: boolean }) {
+  const w = labelWidth(e.label), color = TYPE_COLOR[e.type];
+  return (<>
+    <rect x={-w / 2} y={-21} rx={8} width={w} height={33} fill={LABEL_FILL[e.type]} stroke={color} strokeWidth={selected ? 2.2 : 1} />
+    <text x={0} y={-8} textAnchor="middle" className="edge-title">{shortLabel(e.label)}</text>
+    <text x={0} y={4} textAnchor="middle" className="edge-sub">{edgeSub(model, e)}</text>
+    <title>{`${e.label} · ${EDGE_TYPE_LABEL[e.type]}`}</title>
+  </>);
+}
+
 /** An insight's tapped boxes, joined by purple threads to a knot between them. No order is implied. */
 function Thread({ points, knot }: { points: { x: number; y: number }[]; knot?: boolean }) {
   const k = { x: points.reduce((t, p) => t + p.x, 0) / points.length, y: points.reduce((t, p) => t + p.y, 0) / points.length };
@@ -85,10 +114,10 @@ export function Graph() {
   const compareModel = useStore((s) => s.compareModel), notes = useStore((s) => s.evidence.notes), placing = useStore((s) => s.placing), linkFrom = useStore((s) => s.linkFrom);
   const routeId = useStore((s) => s.routeId), branchId = useStore((s) => s.branchId);
   const canUndo = useStore((s) => s.canUndo), canRedo = useStore((s) => s.canRedo);
-  const draft = useStore((s) => s.insightDraft), spotlight = useStore((s) => s.spotlight), insights = useStore((s) => s.evidence.insights);
-  // Items picked for an insight being written, or linked to the insight the map is showing.
+  const draft = useStore((s) => s.insightDraft), ctx = useStore((s) => s.insightCtx), insights = useStore((s) => s.evidence.insights);
+  // Items picked for an insight being written, or linked to the insight the map is open for.
   const picking = !!draft;
-  const threadIds = useMemo(() => draft?.picks ?? insights.find((i) => i.id === spotlight)?.modelLinks ?? [], [draft, spotlight, insights]);
+  const threadIds = useMemo(() => draft?.picks ?? insights.find((i) => i.id === ctx?.id)?.modelLinks ?? [], [draft, ctx?.id, insights]);
   const lit = useMemo(() => new Set(threadIds), [threadIds]);
   const svgRef = useRef<SVGSVGElement>(null), wrapRef = useRef<HTMLDivElement>(null);
   const [view, setView] = useState<ViewBox | null>(null);
@@ -140,13 +169,12 @@ export function Graph() {
     ro.observe(el); return () => ro.disconnect();
   }, []);
   useEffect(() => { const h = () => fit(); window.addEventListener('weave:fit', h); return () => window.removeEventListener('weave:fit', h); });
-  // Showing an insight's items: bring them, and the ends of linked connections, into view.
+  // The map opened for an insight: frame its group, or the one card's item, each time it is asked for.
   useEffect(() => {
-    if (!spotlight || !lit.size) return;
-    const ids = model.edges.filter((e) => lit.has(e.id)).flatMap((e) => [e.from, e.to]).concat(model.nodes.filter((n) => lit.has(n.id)).map((n) => n.id));
-    if (ids.length) fit(ids);
+    if (!ctx) return;
+    if (ctx.frame.length) fit(ctx.frame); else fit();
     /* eslint-disable-next-line */
-  }, [spotlight]);
+  }, [ctx?.frameKey]);
 
   const toSvg = (cx: number, cy: number) => {
     const svg = svgRef.current!, r = svg.getBoundingClientRect(), v = view!;
@@ -176,7 +204,7 @@ export function Graph() {
   }, [focusOnly, selection, model]);
   const term = search.trim().toLowerCase();
   const matches = (text: string) => !term || text.toLowerCase().includes(term);
-  const dim = (id: string, text: string) => (neighbors && !neighbors.has(id)) || !matches(text) || (!!spotlight && !draft && !lit.has(id));
+  const dim = (id: string, text: string) => (neighbors && !neighbors.has(id)) || !matches(text) ;
 
   const onBgDown = (e: React.PointerEvent) => {
     if (drag.current?.type === 'node' || drag.current?.type === 'label') return;
@@ -287,7 +315,7 @@ export function Graph() {
   };
 
   return (
-    <div className={`canvas-wrap${placing ? ' placing' : ''}`} ref={wrapRef}>
+    <div className={`canvas-wrap${placing ? ' placing' : ''}${ctx ? ' insight-ctx' : ''}`} ref={wrapRef}>
       <div className="canvas-tools">
         <input type="search" placeholder="Search map" aria-label="Search the map" value={search} onChange={(e) => setSearch(e.target.value)} />
         <label className="toggle"><input type="checkbox" checked={focusOnly} onChange={(e) => setFocusOnly(e.target.checked)} /> Focus on selection</label>
@@ -309,6 +337,8 @@ export function Graph() {
         {ghosts?.edges.map((e) => { const g = edgeGeom(e, compareModel!, ghostLayout); return g && (<g key={`ghost-${e.id}`} className="ghost" data-removed={e.id}><path d={g.d} fill="none" stroke="#b56a5d" strokeWidth={2.2} strokeDasharray="4 7" /><text x={g.mx} y={g.my - 10} textAnchor="middle" className="ghost-text">removed: {shortLabel(e.label)}</text></g>); })}
         {ghosts?.nodes.map((n) => { const p = pos(ghostLayout, n.id), w = nodeW(n); return (<g key={`ghost-${n.id}`} className="ghost" data-removed={n.id} transform={`translate(${p.x} ${p.y})`}><rect x={-w / 2} y={-NODE_H / 2} width={w} height={NODE_H} rx={14} fill="#fbf1ee" stroke="#b56a5d" strokeDasharray="4 6" /><text y={4} textAnchor="middle" className="ghost-text">removed: {shortLabel(n.label, 20)}</text></g>); })}
 
+        {/* The thread runs under the connections so their lines and arrows stay readable. */}
+        {threadPoints.length > 1 && <Thread points={threadPoints} />}
         <g>
           {visibleModel.edges.map((e) => {
             const g = edgeGeom(e, visibleModel, lay), l = dragLabel?.id === e.id ? dragLabel : labels.get(e.id);
@@ -331,10 +361,7 @@ export function Graph() {
                     if (labelsDraggable && ev.isPrimary && ev.button === 0) startBoxDrag(ev, 'label', e.id, l);
                   }}
                   onClick={(ev) => { ev.stopPropagation(); select({ type: 'edge', id: e.id }); }}>
-                  <rect x={-w / 2} y={-21} rx={8} width={w} height={33} fill={LABEL_FILL[e.type]} stroke={color} strokeWidth={sel ? 2.2 : 1} />
-                  <text x={0} y={-8} textAnchor="middle" className="edge-title">{shortLabel(e.label)}</text>
-                  <text x={0} y={4} textAnchor="middle" className="edge-sub">{edgeSub(model, e)}</text>
-                  <title>{`${e.label} · ${EDGE_TYPE_LABEL[e.type]}`}</title>
+                  <EdgeLabelBox model={model} e={e} selected={sel} />
                 </g>
                 {count > 0 && (<g className="note-pin" data-pin-for={e.id} transform={`translate(${l.x + w / 2 + 13} ${l.y - 12})`} role="img" aria-label={`${count} note${count === 1 ? '' : 's'}`}><circle r={11} fill="#f8d478" /><text y={4} textAnchor="middle">{count}</text></g>)}
               </g>
@@ -342,14 +369,11 @@ export function Graph() {
           })}
         </g>
 
-        {threadPoints.length > 1 && <Thread points={threadPoints} />}
         <g>
           {visibleModel.nodes.map((n) => {
-            const p = pos(lay, n.id), w = nodeW(n), [tile, fill, stroke] = PALETTE[n.kind];
-            const sel = selection?.type === 'node' && selection.id === n.id, lines = wrapNodeLabel(n.label, 16), count = noteCount(n.id);
-            const internal = model.activities.filter((a) => !a.edgeId && a.ownerNodeId === n.id).length;
+            const p = pos(lay, n.id), w = nodeW(n);
+            const sel = selection?.type === 'node' && selection.id === n.id, count = noteCount(n.id);
             const changed = diff && (diff.added.has(n.id) || diff.changed.has(n.id)), flagged = diff?.downstream.some((d) => d.id === n.id) || diff?.unreachableOutcomes.some((o) => o.id === n.id);
-            const sub = n.role || n.kind;
             return (
               <g key={n.id} className={`nodeSvg${sel ? ' selected' : ''}${lit.has(n.id) ? ' picked' : ''}${endpoints.has(n.id) ? ' endpoint' : ''}${dim(n.id, `${n.label} ${n.role} ${n.description}`) ? ' dim' : ''}${linkFrom === n.id ? ' linking' : ''}`} data-node={n.id} data-scope={n.scope} transform={`translate(${p.x} ${p.y})`}
                 tabIndex={0} role="button" aria-label={`${n.kind} ${n.label}${n.scope !== 'internal' ? `, ${n.scope} to the reviewed scope` : ''}`}
@@ -357,16 +381,7 @@ export function Graph() {
                 onKeyDown={(ev) => { if ((ev.key === 'Enter' || ev.key === ' ') && ev.target === ev.currentTarget) { ev.preventDefault(); if (linkFrom && linkFrom !== n.id) { addEdge(linkFrom, n.id); setState({ linkFrom: null }); } else select({ type: 'node', id: n.id }); } }}>
                 {changed && <rect x={-w / 2 - 6} y={-NODE_H / 2 - 6} width={w + 12} height={NODE_H + 12} rx={18} stroke="#a8d4af" strokeWidth={2} fill="#e2f3e3" />}
                 {flagged && !changed && <rect x={-w / 2 - 6} y={-NODE_H / 2 - 6} width={w + 12} height={NODE_H + 12} rx={18} stroke="#e5c56f" strokeWidth={2} fill="#fdf5dc" />}
-                <rect className="base" x={-w / 2} y={-NODE_H / 2} width={w} height={NODE_H} rx={14} fill={fill} stroke={stroke} strokeDasharray={n.scope === 'external' ? '6 4' : n.scope === 'context' ? '2 4' : undefined} />
-                <rect x={-w / 2} y={-NODE_H / 2 + 8} width={5} height={NODE_H - 16} rx={2} fill={stroke} />
-                <rect x={-w / 2 + 12} y={-NODE_H / 2 + 12} width={30} height={30} rx={8} fill={tile} />
-                <text x={-w / 2 + 27} y={-NODE_H / 2 + 33} textAnchor="middle" className="nodeicon">{KIND_ICON[n.kind]}</text>
-                <text x={-w / 2 + 50} y={lines.length > 1 ? -13 : -5} className="name">{lines.map((ln, i) => <tspan key={i} x={-w / 2 + 50} dy={i ? 16 : 0}>{ln}</tspan>)}</text>
-                <text x={-w / 2 + 50} y={lines.length > 1 ? 26 : 18} className="subtitle">{sub.length > 18 ? sub.slice(0, 17) + '…' : sub}</text>
-                <title>{`${n.label}${n.role ? ` · ${n.role}` : ''}`}</title>
-                {n.scope !== 'internal' && (<g className="scope-tag" transform={`translate(${-w / 2 + 5} ${NODE_H / 2 + 9})`}><rect x={0} y={-2} width={70} height={17} rx={7} fill="#fef7e9" stroke="#dfc79e" /><text x={35} y={10} textAnchor="middle">{n.scope === 'external' ? 'EXTERNAL' : 'CONTEXT'}</text></g>)}
-                {internal > 0 && <text x={n.scope !== 'internal' ? -w / 2 + 84 : -w / 2 + 8} y={NODE_H / 2 + 19} className="internal-count">◈ {internal} internal {internal === 1 ? 'activity' : 'activities'}</text>}
-                {count > 0 && (<g className="note-pin" data-pin-for={n.id} transform={`translate(${w / 2 - 2} ${-NODE_H / 2 - 3})`} role="img" aria-label={`${count} note${count === 1 ? '' : 's'}`}><circle r={11} fill="#f6ce79" /><text y={4} textAnchor="middle">{count}</text></g>)}
+                <NodeBox model={model} n={n} notes={count} />
                 {editable && !picking && (<circle className="port" cx={w / 2} cy={0} r={8} tabIndex={0} role="button" aria-label={`Start a connection from ${n.label}`}
                   onPointerDown={(ev) => startLink(ev, n, true)} onKeyDown={(ev) => { if (ev.key === 'Enter' || ev.key === ' ') startLink(ev, n, false); }} />)}
               </g>
