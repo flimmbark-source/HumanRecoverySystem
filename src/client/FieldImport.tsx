@@ -6,6 +6,7 @@ import { canEdit, claudeKey, discardImport, editImport, fail, getState, holdFile
 import { patch } from './api';
 import { Field, Modal, onDevice, when } from './ui';
 import { readNotesFile } from './docx';
+import { ProposeMapButton } from './MapProposals';
 import { IMPORT_KINDS, IMPORT_KIND_LABEL, findNames, locate, lookReasons, markRepeats, merge, proposalAt, replaceNames, splitAt, splitOffline, type Proposal } from '../shared/fieldnotes';
 import { FILE_MIMES } from '../shared/fieldnotes-ai';
 import { CERTAINTY_LABEL, SOURCE_TYPES, type ImportRecord } from '../shared/workspace';
@@ -42,7 +43,7 @@ export function Archive() {
   const [open, setOpen] = useState<string | null>(null);
   return (
     <section className="card archive" data-testid="archive">
-      <div className="archive-head"><h3>Archive <em>{imports.length}</em></h3>{canEdit() && <button className="primary" onClick={startImport} data-testid="archive-add">+ Add notes or a file</button>}</div>
+      <div className="archive-head"><h3>Archive <em>{imports.length}</em></h3>{canEdit() && <span className="btnrow"><ProposeMapButton /><button className="primary" onClick={startImport} data-testid="archive-add">+ Add notes or a file</button></span>}</div>
       {!imports.length && <p className="micro">Field notes, reports, procedures, emails and photos of whiteboards. Each is split into notes you check before they are saved, and each note remembers where in the original it came from.</p>}
       <ul className="archive-list">{[...imports].reverse().map((im) => {
         const mine = notes.filter((n) => n.origin?.importId === im.id);

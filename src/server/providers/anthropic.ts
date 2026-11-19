@@ -7,6 +7,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { config } from '../config';
 import type { DeepInput, ProviderContext, ResearchProvider, WideInput } from './types';
+import { proposeWithClaude, type ProposalNote, type RawChange } from '../../shared/mapchanges';
+import type { Model } from '../../shared/model';
 import { explainClaudeError, splitFileWithClaude, splitWithClaude, type FileInput, type FileOutput, type SplitInput, type SplitOutput } from '../../shared/fieldnotes-ai';
 
 let client: Anthropic | null = null;
@@ -108,6 +110,10 @@ ${V2}`;
 /** Splits field notes with Claude, using the server's credentials. */
 export async function splitFieldNotes(input: SplitInput, _opts: { apiKey?: string } = {}): Promise<SplitOutput> {
   try { return await splitWithClaude(getClient(), input); } catch (e) { throw explainClaudeError(e, Anthropic); }
+}
+/** Proposes map changes from notes with Claude, using the server's credentials. */
+export async function proposeMapChanges(m: Model, notes: ProposalNote[], _opts: { apiKey?: string } = {}): Promise<RawChange[]> {
+  try { return await proposeWithClaude(getClient(), m, notes); } catch (e) { throw explainClaudeError(e, Anthropic); }
 }
 /** Reads a PDF or image with Claude and splits its text, using the server's credentials. */
 export async function splitFileFieldNotes(input: FileInput, _opts: { apiKey?: string } = {}): Promise<FileOutput> {

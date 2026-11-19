@@ -6,6 +6,7 @@ import { EDGE_TYPES, EDGE_TYPE_HINT, EDGE_TYPE_LABEL, activityForEdge, fmtQty, t
 import { NODE_H, edgeGeom, fitView, followLabel, labelOffset, labelWidth, nodeW, placeLabels, pointAt, pos, resolveDrag, shortLabel, tidy, wrapNodeLabel, type LabelPoint, type ViewBox } from '../shared/layout';
 import { diffModels } from '../shared/diff';
 import { analyzeRoute } from '../shared/routes';
+import { LEVEL_LABEL, basisIndex, type Level } from './Basis';
 
 export const TYPE_COLOR: Record<EdgeType, string> = { flow: '#567fa7', info: '#3f8f81', dependency: '#a8823c', authority: '#8a6fa0', association: '#7f8b93' };
 export const DASH: Record<EdgeType, string> = { flow: '', info: '8 6', dependency: '2 6', authority: '11 3 2 3', association: '5 5' };
@@ -60,8 +61,24 @@ function Token({ model, layout }: { model: Model; layout: Layout }) {
   );
 }
 
+const PIN: Record<Level, [string, string]> = { seen: ['#d4ecdb', '#4f9a6a'], told: ['#f8e6b0', '#c49a2c'], documented: ['#dce8f7', '#5a86bd'], thin: ['#f1e6f5', '#a07ab0'], none: ['#f1f3f1', '#c3cbc6'] };
+/** 🗒 with how many notes an item rests on, coloured by the strongest way they are known. Opens its details. */
+export function BasisPin({ id, b, x, y, onOpen }: { id: string; b: { count: number; level: Level }; x: number; y: number; onOpen?: () => void }) {
+  const [fill, stroke] = PIN[b.level], w = b.count ? 36 : 24;
+  return (
+    <g className={`note-pin lv-${b.level}`} data-pin-for={id} data-level={b.level} data-count={b.count} transform={`translate(${x} ${y})`} role="button" tabIndex={onOpen ? 0 : -1}
+      aria-label={b.count ? `Based on ${b.count} note${b.count === 1 ? '' : 's'}: ${LEVEL_LABEL[b.level].toLowerCase()}` : 'No notes behind this yet'}
+      onPointerDown={(e) => { if (onOpen) e.stopPropagation(); }} onClick={(e) => { if (!onOpen) return; e.stopPropagation(); onOpen(); }}
+      onKeyDown={(e) => { if (onOpen && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); e.stopPropagation(); onOpen(); } }}>
+      <rect x={-w / 2} y={-11} width={w} height={22} rx={11} fill={fill} stroke={stroke} strokeWidth={1.2} opacity={b.count ? 1 : 0.8} />
+      <text x={b.count ? -7 : 0} y={4} textAnchor="middle" className="pin-icon">🗒</text>
+      {b.count > 0 && <text x={9} y={4} textAnchor="middle">{b.count}</text>}
+    </g>
+  );
+}
+
 /** A node's box as drawn on the map, centred on 0,0. The Insights page draws its cards with it too. */
-export function NodeBox({ model, n, notes }: { model: Model; n: WNode; notes: number }) {
+export function NodeBox({ model, n, basis, onBasis }: { model: Model; n: WNode; basis: { count: number; level: Level }; onBasis?: () => void }) {
   const w = nodeW(n), [tile, fill, stroke] = PALETTE[n.kind], lines = wrapNodeLabel(n.label, 16), sub = n.role || n.kind;
   const internal = model.activities.filter((a) => !a.edgeId && a.ownerNodeId === n.id).length;
   return (<>
@@ -74,7 +91,7 @@ export function NodeBox({ model, n, notes }: { model: Model; n: WNode; notes: nu
     <title>{`${n.label}${n.role ? ` · ${n.role}` : ''}`}</title>
     {n.scope !== 'internal' && (<g className="scope-tag" transform={`translate(${-w / 2 + 5} ${NODE_H / 2 + 9})`}><rect x={0} y={-2} width={70} height={17} rx={7} fill="#fef7e9" stroke="#dfc79e" /><text x={35} y={10} textAnchor="middle">{n.scope === 'external' ? 'EXTERNAL' : 'CONTEXT'}</text></g>)}
     {internal > 0 && <text x={n.scope !== 'internal' ? -w / 2 + 84 : -w / 2 + 8} y={NODE_H / 2 + 19} className="internal-count">◈ {internal} internal {internal === 1 ? 'activity' : 'activities'}</text>}
-    {notes > 0 && (<g className="note-pin" data-pin-for={n.id} transform={`translate(${w / 2 - 2} ${-NODE_H / 2 - 3})`} role="img" aria-label={`${notes} note${notes === 1 ? '' : 's'}`}><circle r={11} fill="#f6ce79" /><text y={4} textAnchor="middle">{notes}</text></g>)}
+    <BasisPin id={n.id} b={basis} x={w / 2 - 6} y={-NODE_H / 2 - 3} onOpen={onBasis} />
   </>);
 }
 
@@ -298,7 +315,8 @@ export function Graph() {
     window.addEventListener('keydown', key); return () => window.removeEventListener('keydown', key);
   }, []);
 
-  const noteCount = (id: string) => notes.filter((n) => n.targetId === id).length;
+  const basisIdx = useMemo(() => basisIndex(model, notes), [model, notes]);
+  const basisOf = (id: string) => basisIdx.get(id) ?? { count: 0, level: 'none' as Level };
   const selEdge = selection?.type === 'edge' ? model.edges.find((e) => e.id === selection.id) : null;
   const endpoints = new Set(selEdge ? [selEdge.from, selEdge.to] : []);
   const route = mode === 'timeline' ? model.routes.find((r) => r.id === routeId) : null;
@@ -343,7 +361,7 @@ export function Graph() {
           {visibleModel.edges.map((e) => {
             const g = edgeGeom(e, visibleModel, lay), l = dragLabel?.id === e.id ? dragLabel : labels.get(e.id);
             if (!g || !l) return null;
-            const sel = selection?.type === 'edge' && selection.id === e.id, color = TYPE_COLOR[e.type], count = noteCount(e.id);
+            const sel = selection?.type === 'edge' && selection.id === e.id, color = TYPE_COLOR[e.type];
             const changed = diff && (diff.added.has(e.id) || diff.changed.has(e.id)), flagged = diff?.downstream.some((d) => d.id === e.id);
             const far = Math.hypot(l.x - g.mx, l.y - g.my) > 125, w = labelWidth(e.label);
             const cls = `edgegroup${sel ? ' selected' : ''}${lit.has(e.id) ? ' picked' : ''}${dim(e.id, `${e.label} ${e.workItem} ${e.description}`) ? ' dim' : ''}${route && !routeRefs.has(e.id) ? ' offroute' : ''}${activeRef === e.id ? ' playing' : ''}`;
@@ -363,7 +381,7 @@ export function Graph() {
                   onClick={(ev) => { ev.stopPropagation(); select({ type: 'edge', id: e.id }); }}>
                   <EdgeLabelBox model={model} e={e} selected={sel} />
                 </g>
-                {count > 0 && (<g className="note-pin" data-pin-for={e.id} transform={`translate(${l.x + w / 2 + 13} ${l.y - 12})`} role="img" aria-label={`${count} note${count === 1 ? '' : 's'}`}><circle r={11} fill="#f8d478" /><text y={4} textAnchor="middle">{count}</text></g>)}
+                <BasisPin id={e.id} b={basisOf(e.id)} x={l.x + w / 2 + 17} y={l.y - 12} onOpen={() => select({ type: 'edge', id: e.id })} />
               </g>
             );
           })}
@@ -372,7 +390,7 @@ export function Graph() {
         <g>
           {visibleModel.nodes.map((n) => {
             const p = pos(lay, n.id), w = nodeW(n);
-            const sel = selection?.type === 'node' && selection.id === n.id, count = noteCount(n.id);
+            const sel = selection?.type === 'node' && selection.id === n.id;
             const changed = diff && (diff.added.has(n.id) || diff.changed.has(n.id)), flagged = diff?.downstream.some((d) => d.id === n.id) || diff?.unreachableOutcomes.some((o) => o.id === n.id);
             return (
               <g key={n.id} className={`nodeSvg${sel ? ' selected' : ''}${lit.has(n.id) ? ' picked' : ''}${endpoints.has(n.id) ? ' endpoint' : ''}${dim(n.id, `${n.label} ${n.role} ${n.description}`) ? ' dim' : ''}${linkFrom === n.id ? ' linking' : ''}`} data-node={n.id} data-scope={n.scope} transform={`translate(${p.x} ${p.y})`}
@@ -381,7 +399,7 @@ export function Graph() {
                 onKeyDown={(ev) => { if ((ev.key === 'Enter' || ev.key === ' ') && ev.target === ev.currentTarget) { ev.preventDefault(); if (linkFrom && linkFrom !== n.id) { addEdge(linkFrom, n.id); setState({ linkFrom: null }); } else select({ type: 'node', id: n.id }); } }}>
                 {changed && <rect x={-w / 2 - 6} y={-NODE_H / 2 - 6} width={w + 12} height={NODE_H + 12} rx={18} stroke="#a8d4af" strokeWidth={2} fill="#e2f3e3" />}
                 {flagged && !changed && <rect x={-w / 2 - 6} y={-NODE_H / 2 - 6} width={w + 12} height={NODE_H + 12} rx={18} stroke="#e5c56f" strokeWidth={2} fill="#fdf5dc" />}
-                <NodeBox model={model} n={n} notes={count} />
+                <NodeBox model={model} n={n} basis={basisOf(n.id)} onBasis={() => select({ type: 'node', id: n.id })} />
                 {editable && !picking && (<circle className="port" cx={w / 2} cy={0} r={8} tabIndex={0} role="button" aria-label={`Start a connection from ${n.label}`}
                   onPointerDown={(ev) => startLink(ev, n, true)} onKeyDown={(ev) => { if (ev.key === 'Enter' || ev.key === ' ') startLink(ev, n, false); }} />)}
               </g>

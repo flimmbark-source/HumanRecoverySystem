@@ -250,6 +250,13 @@ details.plain{margin:10px 0}details.plain>summary{cursor:pointer;font-weight:700
 .fn-sheet textarea{font-size:14px}.fn-row{display:grid;gap:4px}.fn-label{font-size:10.5px;font-weight:750;color:#54695e}.fn-readable{margin:0}
 .fn-sheet-actions{margin:2px 0 0;flex-wrap:wrap}
 @media (max-width:720px){.fn-sheet{bottom:62px;max-height:58vh}.import-page.review{padding-bottom:420px}.fn-name-list li{grid-template-columns:1fr}.fn-doc{padding:10px;font-size:13.5px}}
+.chg-group ul{display:grid;gap:6px}.chg-group h3 em{font-style:normal;color:var(--muted);font-weight:500}.chg{border:1px solid var(--line);border-radius:10px;padding:8px 10px;background:#fff}.chg.off{background:#f7f8f6}.chg.off b{color:#68766e}.chg.bad{border-style:dashed}
+.chg .check{align-items:flex-start;margin:0}.chg .check span{display:grid;gap:2px}.chg-why{font-size:12px;color:#53655b}.chg-notes{display:grid;gap:5px;margin:6px 0 0;font-size:12px}.chg-notes em{display:block;font-style:normal;color:var(--muted);font-size:10.5px}
+.chg-bar{position:sticky;bottom:0;padding:10px 0;background:linear-gradient(transparent,var(--canvas) 30%)}.adopt-row{margin:12px 0;padding:10px;border:1px solid #cfe0d4;border-radius:10px;background:#f2f8f3}.adopt-row .micro{margin-top:4px}
+.note-pin{cursor:pointer}.note-pin .pin-icon{font-size:11px}.note-pin:focus{outline:none}.note-pin:focus-visible rect{stroke:#20352f;stroke-width:2}
+.basis{margin:2px 0 8px}.basis-line{border:0;background:none;padding:3px 0;min-height:0;font-weight:650;font-size:12px;color:#33584a;text-align:left;white-space:normal}.basis-line:disabled{color:var(--muted);opacity:1;cursor:default}.basis-line em{font-style:normal;color:var(--amber);font-weight:600}
+.basis-notes{display:grid;gap:6px;margin:4px 0 6px;font-size:12px}.basis-notes>li{border-left:3px solid #d5ded4;padding-left:8px}.basis-notes em{display:block;font-style:normal;color:var(--muted);font-size:10.5px}
+.chip.c-observed{background:#d4ecdb;border-color:#9fcdb0}.chip.c-reported{background:#f8e6b0;border-color:#e2c46c}.chip.c-documented{background:#dce8f7;border-color:#a9c3e4}.chip.c-inferred{background:#f1e6f5;border-color:#d4bde0}
 @media (max-width:1350px){
  :root{--leftw:70px;--rightw:342px}
  .left .brandtext,.left .workspace-card,.left .navlabel,.left .left-bottom{display:none}.left .brand{padding:16px 0;justify-content:center}.navlist{padding:6px}.navbtn{justify-content:center;padding:11px 0;position:relative}.navicon{font-size:17px;width:auto}.navbtn .count{position:absolute;top:3px;right:6px;margin:0;font-size:9px;padding:0 5px}

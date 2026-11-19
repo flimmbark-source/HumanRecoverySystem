@@ -130,7 +130,7 @@ export const branchSchema = z.object({
   baseRevisionId: idSchema.nullable().default(null), // pinned, immutable comparison revision
   headRevisionId: idSchema,
   layout: layoutSchema.default({}),
-  origin: z.object({ type: z.enum(['insight', 'opportunity', 'option', 'blank']), id: idSchema.nullable() }).nullable().default(null),
+  origin: z.object({ type: z.enum(['insight', 'opportunity', 'option', 'blank', 'archive']), id: idSchema.nullable() }).nullable().default(null),
   status: z.enum(['draft', 'in_review', 'reviewed']).default('draft'),
   createdAt: text(40),
 });

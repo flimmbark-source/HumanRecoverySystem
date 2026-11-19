@@ -3,13 +3,14 @@ import { useMemo, useState } from 'react';
 import { canEdit, openModal, useStore } from './store';
 import { NoteCard, QuickCapture } from './Capture';
 import { Archive, ImportFlow } from './FieldImport';
+import { MapProposals } from './MapProposals';
 import { Empty } from './ui';
 import { anchorState, targetLabel } from '../shared/diff';
 import { NOTE_KINDS } from '../shared/workspace';
 
 export function NotesBoard() {
-  const importing = useStore((s) => !!s.importDraft);
-  return importing ? <ImportFlow /> : <Board />;
+  const importing = useStore((s) => !!s.importDraft), proposing = useStore((s) => !!s.mapDraft);
+  return importing ? <ImportFlow /> : proposing ? <MapProposals /> : <Board />;
 }
 
 function Board() {

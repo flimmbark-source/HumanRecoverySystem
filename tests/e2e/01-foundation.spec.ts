@@ -101,7 +101,7 @@ test.describe('Import and recovery', () => {
     await page.getByTestId('import-open').click();
     await expect(page.locator('[data-node]')).toHaveCount(6);
     await expect(page.locator('[data-edge]')).toHaveCount(6);
-    await expect(page.locator('[data-pin-for]')).toHaveCount(3); // three linked notes pinned on e2, e3, e5
+    await expect(page.locator('[data-pin-for]:not([data-count="0"])')).toHaveCount(3); // three linked notes pinned on e2, e3, e5
     await expect(page.getByTestId('stat-percase')).toHaveText('63 min');
     await expect(page.getByTestId('stat-monthly')).toHaveText('84 h');
     await expect(page.getByTestId('unverified-note')).toContainText('unverified sample inputs');

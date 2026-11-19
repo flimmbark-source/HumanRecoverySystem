@@ -8,6 +8,7 @@ import { LinkModal, NoteModal, SessionModal } from './Capture';
 import { NotesBoard } from './Board';
 import { InsightBar, InsightButton, InsightCtxButton, Insights } from './Insights';
 import { Decide } from './Decide';
+import { AdoptButton } from './MapProposals';
 import { CandidateImportModal, Research, RunModal } from './Research';
 import { Report } from './Report';
 import { Settings } from './Settings';
@@ -144,7 +145,7 @@ export function Workspace({ pid }: { pid: string }) {
           </div>)}
         </header>
         <Banners />
-        {branch?.kind === 'scenario' && nav === 'map' && <div className="banner info" data-testid="scenario-banner"><span>Editing scenario <b>{branch.name}</b>. The baseline and its evidence are not affected.</span><button className="linkbtn" onClick={() => loadBranch('baseline').catch(fail)}>Back to baseline</button></div>}
+        {branch?.kind === 'scenario' && nav === 'map' && <div className="banner info" data-testid="scenario-banner"><span>{branch.origin?.type === 'archive' ? <><b>{branch.name}</b>: changes from your notes, compared with the main map.</> : <>Editing scenario <b>{branch.name}</b>. The baseline and its evidence are not affected.</>}</span><span>{branch.origin?.type === 'archive' && branch.status !== 'reviewed' && <AdoptButton name={branch.name} />}<button className="linkbtn" onClick={() => loadBranch('baseline').catch(fail)}>Back to baseline</button></span></div>}
         <main className="main" id="main">
           {nav === 'map' ? (<div className="mapview"><Graph />{mode === 'timeline' && <Timeline />}
             <div className={`map-tools${capturing ? ' capturing' : ''}`}>{canEdit() && <button className="primary narrow-only" onClick={() => openModal('note')} data-testid="fab-note">+ Note</button>}<button className="narrow-only" onClick={() => setState({ inspectorOpen: true })} data-testid="open-details">{selection ? 'Details' : mode === 'scenario' ? 'Scenario' : 'Overview'}</button>{canEdit() && <InsightButton />}</div>

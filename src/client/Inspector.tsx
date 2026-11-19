@@ -3,6 +3,7 @@ import { canEdit, editModel, openModal, select, setState, toast, useStore } from
 import { addInternalActivity, deleteItem, updateActivity, updateActivityForEdge, updateEdge, updateNode } from './ops';
 import { NoteCard, QuickCapture } from './Capture';
 import { InsightDetailPicker, Pick, useInsightCtx } from './Insights';
+import { BasisSummary } from './Basis';
 import { BasisChip, Field, QtyInput, Sentence, TokenKey, fmtMinutes } from './ui';
 import { TYPE_COLOR, KIND_ICON } from './Graph';
 import { ScenarioPanel } from './Scenario';
@@ -65,6 +66,7 @@ function EdgeLens({ model, edge }: { model: Model; edge: WEdge }) {
           {operational && <BasisChip basis={basis} />}
         </div>
         <h2 data-testid="lens-title">{edge.label}</h2>
+        <BasisSummary id={edge.id} />
         {P('route', 'From → to', <div className="lens-actors" data-testid="lens-route">
           <button onClick={() => from && select({ type: 'node', id: from.id })}>{from?.label ?? 'Unknown'}</button><span aria-hidden="true">{edge.directed ? '→' : '—'}</span><span className="sr">to</span>
           <button onClick={() => to && select({ type: 'node', id: to.id })}>{to?.label ?? 'Unknown'}</button>
@@ -173,6 +175,7 @@ function NodePanel({ model, id }: { model: Model; id: string }) {
     <div className="lens" data-testid="node-panel">
       <div className="lens-top"><span className="lens-type"><b aria-hidden="true">{KIND_ICON[n.kind]}</b> {NODE_KIND_LABEL[n.kind]}</span>{n.scope !== 'internal' && <span className="chip scope">{n.scope.toUpperCase()}</span>}</div>
       <h2>{n.label}</h2>
+      <BasisSummary id={id} />
       <p className="lens-description">{n.role && <Pick item={id} k="role" label="Role" inline>{n.role}</Pick>}{n.role && n.description ? ' · ' : ''}{n.description && <Pick item={id} k="description" label="Description" inline>{n.description}</Pick>}</p>
       <p className="micro"><Pick item={id} k="scope" label="Scope" inline>{SCOPE_LABEL[n.scope]}</Pick>{model.startNodeId === id ? ' · Start of the workflow' : ''}</p>
       <h4>Connections</h4>
@@ -211,6 +214,7 @@ function ActivityPanel({ model, id }: { model: Model; id: string }) {
     <div className="lens" data-testid="activity-panel">
       <div className="lens-top"><span className="lens-type">◈ Internal activity</span><BasisChip basis={a.activeMinutes.value === null ? 'unknown' : a.activeMinutes.basis} /></div>
       <h2>{a.label}</h2>
+      <BasisSummary id={id} />
       <p className="lens-description">Work done at <button className="linkbtn" onClick={() => owner && select({ type: 'node', id: owner.id })}>{owner?.label ?? 'an unknown node'}</button> by <Pick item={id} k="performer" label="Who does it" inline>{performer?.label ?? 'a performer who is not identified'}</Pick>. No handoff is involved.</p>
       <div className="lens-inline-metrics"><Pick item={id} k="active" label="Active time" inline><span><b>{fmtMinutes(a.activeMinutes.value)}</b> active</span></Pick><Pick item={id} k="waiting" label="Waiting time" inline><span><b>{fmtMinutes(a.waitMinutes.value)}</b> waiting</span></Pick></div>
       <div className="conn-editbody">

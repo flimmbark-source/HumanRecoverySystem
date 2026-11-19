@@ -8,6 +8,8 @@ import { Empty, Field } from './ui';
 import { EVIDENCE_LEVEL_LABEL, evidenceFor, insightTitle, itemFacts, notesForInsight, suggestSupport, terms, type Suggestion } from '../shared/evidence';
 import { EDGE_TYPES, type Model } from '../shared/model';
 import { NODE_H, labelWidth, nodeW } from '../shared/layout';
+import { basisNotes, levelOf } from './Basis';
+import type { Note } from '../shared/workspace';
 import { RELATIONS, RELATION_LABEL, type Insight } from '../shared/workspace';
 
 const thought = (i: Pick<Insight, 'title' | 'body'>) => i.body.trim() || i.title.trim() || 'Untitled insight';
@@ -125,13 +127,13 @@ export function InsightDetailPicker({ itemId }: { itemId: string | null }) {
 
 // ---- map cards, as the map draws them ------------------------------------------------------------------
 const PAD = 14;
-function CardShape({ model, id, notes }: { model: Model; id: string; notes: number }) {
+function CardShape({ model, id, notes }: { model: Model; id: string; notes: V<Note>[] }) {
   const n = model.nodes.find((x) => x.id === id);
   if (n) {
     const w = nodeW(n);
     return (
       <svg className="card-shape" viewBox={`${-w / 2 - 4} ${-NODE_H / 2 - PAD} ${w + 4 + PAD} ${NODE_H + PAD + 26}`} width={(w + 4 + PAD) * 0.82} role="img" aria-label={n.label}>
-        <g className="nodeSvg">{<NodeBox model={model} n={n} notes={notes} />}</g>
+        <g className="nodeSvg">{<NodeBox model={model} n={n} basis={{ count: basisNotes(model, notes, n.id).length, level: levelOf(basisNotes(model, notes, n.id)) }} />}</g>
       </svg>
     );
   }
@@ -171,7 +173,7 @@ function InsightCard({ insight, id, editing }: { insight: V<Insight>; id: string
   return (
     <div className="ins-card" data-testid="insight-card" data-item={id} onClick={editing ? undefined : open}>
       <button className="ins-card-open" aria-label={`Open ${f?.name ?? 'this item'} on the map`} onClick={(e) => { e.stopPropagation(); open(); }} data-testid="card-open">
-        <CardShape model={model} id={id} notes={notes.filter((n) => n.targetId === id).length} />
+        <CardShape model={model} id={id} notes={notes} />
       </button>
       {edge && <p className="ins-card-route">{name(edge.from)} → {name(edge.to)}</p>}
       {(facts.length > 0 || noteIds.length > 0) ? (

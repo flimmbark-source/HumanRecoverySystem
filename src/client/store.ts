@@ -4,6 +4,7 @@ import { ApiError, del, get, issuesText, patch, post, put } from './api';
 import { type Layout, type Model } from '../shared/model';
 import type { DecisionOption, EvidenceLink, ImportRecord, Insight, Note, Opportunity, Source } from '../shared/workspace';
 import type { Proposal } from '../shared/fieldnotes';
+import { applyChanges, type MapChange } from '../shared/mapchanges';
 import { onDevice } from './ui';
 import type { Candidate } from '../shared/candidates';
 
@@ -79,6 +80,8 @@ export interface State {
   insightCtx: InsightCtx | null;
   insightsUi: InsightsUi;
   importDraft: ImportDraft | null;
+  /** Map changes proposed from notes, being reviewed before they go into a draft. */
+  mapDraft: { method: string; noteIds: string[]; changes: MapChange[] } | null;
   loading: boolean; loadError: string;
 }
 
@@ -86,7 +89,7 @@ const emptyEvidence = (): Evidence => ({ sources: [], notes: [], insights: [], l
 const initial: State = {
   user: null, authChecked: false, project: null, role: 'reader', members: [], branches: [], provider: null, branchId: 'baseline', revision: null, model: null, layout: {}, lineage: [],
   compareTo: null, compareModel: null, evidence: emptyEvidence(), research: null, nav: 'map', mode: 'structure', selection: null, routeId: null, inspectorOpen: false, session: null,
-  save: 'saved', saveError: '', conflict: null, recovered: null, canUndo: false, canRedo: false, toast: null, placing: null, linkFrom: null, modal: null, insightDraft: null, insightCtx: null, insightsUi: { expanded: null, editing: null, scroll: 0, newText: null, edits: {} }, importDraft: null, loading: false, loadError: '',
+  save: 'saved', saveError: '', conflict: null, recovered: null, canUndo: false, canRedo: false, toast: null, placing: null, linkFrom: null, modal: null, insightDraft: null, insightCtx: null, insightsUi: { expanded: null, editing: null, scroll: 0, newText: null, edits: {} }, importDraft: null, mapDraft: null, loading: false, loadError: '',
 };
 
 let state = initial;
@@ -514,6 +517,39 @@ export async function saveImport() {
   setState((s) => ({ importDraft: null, evidence: { ...s.evidence, imports: [...s.evidence.imports, r.import], sources: [...s.evidence.sources, ...r.sources], notes: [...s.evidence.notes, ...r.notes] } }));
   keepImportDraft();
   return r;
+}
+
+// ---- map changes from notes ------------------------------------------------------------------------------
+/** Asks for map changes based on these notes, measured against the main map. */
+export async function proposeMap(noteIds: string[]) {
+  const key = claudeKey();
+  const r = await post<{ method: string; changes: MapChange[] }>(`/projects/${state.project!.id}/fieldnotes/propose-map`, { noteIds, branchId: 'baseline' }, key ? { 'x-claude-key': key } : {});
+  setState({ mapDraft: { method: r.method, noteIds, changes: r.changes } });
+}
+export const editMapDraft = (changes: MapChange[]) => setState((s) => (s.mapDraft ? { mapDraft: { ...s.mapDraft, changes } } : {}));
+/** Puts the ticked changes into a new draft version of the main map and opens it to compare. */
+export async function createMapDraft() {
+  const d = state.mapDraft; if (!d) return;
+  await flush();
+  if (state.branchId !== 'baseline') await loadBranch('baseline');
+  const { model, layout, applied } = applyChanges(state.model!, state.layout, d.changes);
+  const when = new Date().toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+  await createScenario(`Draft from notes, ${when}`, { fromBranchId: 'baseline', hypothesis: `${applied} change${applied === 1 ? '' : 's'} proposed from ${d.noteIds.length} notes in the archive.`, origin: { type: 'archive', id: null } });
+  editModel((m) => { Object.assign(m, model); }, `Changes from notes (${applied})`);
+  editLayout(layout);
+  await flush();
+  setState({ mapDraft: null, nav: 'map', mode: 'scenario', inspectorOpen: false });
+  return applied;
+}
+/** Makes a draft the main map. Refused when the main map changed since the draft was made, unless forced. */
+export async function adoptDraft(force = false): Promise<'adopted' | 'changed'> {
+  await flush();
+  const draft = state.branches.find((b) => b.id === state.branchId);
+  try { await post(`/projects/${state.project!.id}/branches/${state.branchId}/adopt`, { force }); }
+  catch (e) { if (e instanceof ApiError && e.status === 409 && e.body.changedSince) return 'changed'; throw e; }
+  await loadBranch('baseline');
+  setState((s) => ({ mode: 'structure', branches: s.branches.map((b) => (b.id === draft?.id ? { ...b, status: 'reviewed' } : b)) }));
+  return 'adopted';
 }
 
 // ---- evidence and decision records -----------------------------------------------------------------

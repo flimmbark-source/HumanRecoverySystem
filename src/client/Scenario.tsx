@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { AdoptButton } from './MapProposals';
 import { canEdit, createScenario, editModel, fail, getState, loadBranch, select, setCompare, setState, toast, useStore } from './store';
 import { del, patch } from './api';
 import { NoteCard } from './Capture';
@@ -207,6 +208,7 @@ export function ScenarioPanel() {
           {!historical.length && <p className="micro">Every attached note still has its target in this scenario.</p>}
         </div>
       )}
+      {!ro && <div className="adopt-row"><AdoptButton name={branch.name} /><p className="micro">Makes this the main map. The current main map stays in its history.</p></div>}
       {creator}
       {!ro && <div className="lens-danger"><button className="danger" onClick={async () => { if (!confirm(`Delete scenario “${branch.name}”? The baseline is not affected.`)) return; try { await del(`/projects/${project.id}/branches/${branchId}`); setState((s) => ({ branches: s.branches.filter((b) => b.id !== branchId) })); await loadBranch('baseline'); void getState(); } catch (e) { fail(e); } }}>Delete scenario</button></div>}
     </div>

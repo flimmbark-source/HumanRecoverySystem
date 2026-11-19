@@ -24,7 +24,7 @@ test.describe('Fieldwork and synthesis', () => {
     await expect(ev.locator('.sticky', { hasText: 'checks three places' })).toBeVisible();
     await expect(ev.locator('.sticky', { hasText: 'checks three places' }).locator('.sticky-source')).toHaveText('Interview 04');
     await expect(page.getByTestId('lens-title')).toHaveText('Find a placement'); // place on the map is not lost
-    await expect(page.locator('[data-pin-for="e3"] text')).toHaveText('2');
+    await expect(page.locator('[data-pin-for="e3"]')).toHaveAttribute('data-count', '2');
 
     // 2. a note without a target, attached later
     await page.getByTestId('clear-selection').click();

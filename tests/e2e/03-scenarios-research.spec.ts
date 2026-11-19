@@ -450,7 +450,7 @@ test.describe('Mobile', () => {
     // same map, same view, same selection; the map is usable again
     expect(await page.getByTestId('graph').getAttribute('viewBox')).toBe(viewBefore);
     await expect(page.locator('[data-edge="e3"]')).toHaveClass(/selected/);
-    await expect(page.locator('[data-pin-for="e3"] text')).toHaveText('2');
+    await expect(page.locator('[data-pin-for="e3"]')).toHaveAttribute('data-count', '2');
     await page.locator('[data-label-for="e4"]').tap();
     await expect(page.getByTestId('lens-title')).toHaveText('Confirm and notify');
     await page.getByTestId('drawer-close').tap();
