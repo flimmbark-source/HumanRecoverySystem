@@ -25,7 +25,7 @@ reference/     the original handoff, unchanged
 
 ## Weave on an Android phone
 
-The Android app runs the client, the API and the database on the phone, with no server and no network. On the phone, download **[Weave.apk](https://github.com/flimmbark-source/HumanRecoverySystem/releases/latest/download/Weave.apk)** from the [latest release](https://github.com/flimmbark-source/HumanRecoverySystem/releases/latest) and open it. Android 8 or later. See [`docs/ANDROID.md`](docs/ANDROID.md) for what differs from the server, backups, the build and the signing key.
+The Android app runs the client, the API and the database on the phone, with no server. It uses the network only for Claude requests you start from the archive. On the phone, download **[Weave.apk](https://github.com/flimmbark-source/HumanRecoverySystem/releases/latest/download/Weave.apk)** from the [latest release](https://github.com/flimmbark-source/HumanRecoverySystem/releases/latest) and open it. Android 8 or later. See [`docs/ANDROID.md`](docs/ANDROID.md) for what differs from the server, backups, the build and the signing key.
 
 ## Try Weave in GitHub Codespaces
 

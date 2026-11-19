@@ -62,7 +62,7 @@ By default the web process also runs research jobs. To scale or isolate them, se
 | `PORT` | `8787` | HTTP port |
 | `COOKIE_SECURE` | `1` in production | Send the session cookie over HTTPS only |
 | `ALLOW_SIGNUP` | `1` | Self-service account creation |
-| `MAX_BODY_BYTES` | `2000000` | Largest accepted request body, imports included |
+| `MAX_BODY_BYTES` | `30000000` | Largest accepted request body, imports included. A PDF or image sent to Claude to be read travels as base64 (about 4/3 of the file size). |
 | `RESEARCH_PROVIDER` | `none` | `none`, `anthropic` or `fixture` |
 | `ANTHROPIC_API_KEY` | – | Credentials for the real provider |
 | `RESEARCH_MODEL` | `claude-opus-5-5` | Model used for research jobs |
@@ -87,6 +87,8 @@ Secrets come from the environment only. Nothing secret is stored in the reposito
 3. Restart. **Research → provider status** shows the provider and model in use.
 
 What leaves the workspace: for a wide job, the question, the project's scope text and the listed public topics; for a deep job, additionally the notes a researcher ticked (each must already be marked as an approved, de-identified excerpt, re-checked when the job runs), the anonymous source IDs of those notes, an optional insight, and the labels and links of the pinned map revision. Transcripts, participant roles and other notes are never sent. Requests opt in to the provider's server-side model fallback so a declined request is retried on another model rather than failing the job.
+
+**Archive splitting** is separate from research jobs. When a researcher presses **Split with Claude** or **Read and split with Claude** in **Notes → Archive**, the server sends that one text or file, with the names and short descriptions of the map's boxes and connections, to Claude (`RESEARCH_PROVIDER=anthropic` and its credentials are reused). The page shows what will be sent and asks first. Text is sent after the names the researcher chose to replace; PDFs and images are sent as they are, so they are refused unless **Allow sending PDFs and images to Claude** is on for the project. The reply is checked and only proposed: nothing is saved until the researcher reviews it. Original files are not stored; an archive entry keeps the text and, if given, a link to the original.
 
 ## Backup and restore
 

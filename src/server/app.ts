@@ -13,10 +13,10 @@ import { acceptCandidate, cancelRun, enqueueRun, importCandidates, listResearch,
 import { audit, createBranch, createProject, deleteDoc, exportBundle, getBranch, getBranches, getRevision, isCollection, listCollection, listRevisions, saveModel, upsertDoc, writeBundle, COLLECTIONS, type CollectionName } from './store';
 import { parseImport } from '../shared/legacy';
 import { layoutSchema } from '../shared/model';
-import { projectMetaSchema } from '../shared/workspace';
+import { CERTAINTIES, projectMetaSchema } from '../shared/workspace';
 import { IMPORT_KINDS, mapItems, splitOffline } from '../shared/fieldnotes';
-import { proposalsFromOutput } from '../shared/fieldnotes-ai';
-import { splitFieldNotes } from './providers/anthropic';
+import { FILE_MIMES, proposalsFromOutput } from '../shared/fieldnotes-ai';
+import { splitFieldNotes, splitFileFieldNotes } from './providers/anthropic';
 
 export const app = new Hono<Env>();
 const api = new Hono<Env>();
@@ -219,20 +219,36 @@ api.delete('/projects/:pid/branches/:bid', async (c) => {
 const modelFor = async (c: any, branchId: string | undefined) => { const b = await getBranch(pool, pid(c), branchId || 'baseline'); return { branch: b, model: (await getRevision(pool, pid(c), b.headRevisionId)).model }; };
 api.post('/projects/:pid/fieldnotes/split', async (c) => {
   await need(c, 'editor');
-  const { text, branchId } = await body(c, z.object({ text: z.string().trim().min(1).max(400_000), branchId: z.string().max(64).optional() }));
-  const { model } = await modelFor(c, branchId);
+  const b = await body(c, z.object({
+    text: z.string().trim().min(1).max(400_000).optional(), docType: z.enum(['notes', 'document']).default('notes'), branchId: z.string().max(64).optional(),
+    file: z.object({ name: z.string().max(300), mime: z.enum(FILE_MIMES), data: z.string().min(1) }).optional(),
+  }).refine((x) => !!x.text !== !!x.file, 'Send either text or a file.'));
+  const { model } = await modelFor(c, b.branchId);
   const items = mapItems(model);
-  if (config.provider === 'fixture') return c.json({ method: 'fixture', proposals: splitOffline(text, model).map((p) => ({ ...p, why: 'Test splitter. No AI was used.' })) });
+  if (b.file) {
+    // Names in a PDF or picture cannot be replaced before it is read, so the project has to allow sending them.
+    const meta = (await one<{ meta: { aiFiles?: string } }>(pool, 'SELECT meta FROM projects WHERE id = $1', [pid(c)]))?.meta;
+    if (meta?.aiFiles !== 'on') throw new HttpError(403, 'Sending PDFs and images to Claude is off for this project. Turn it on in Project settings.');
+  }
+  if (config.provider === 'fixture') {
+    // The test splitter cannot read files: it pretends the file said one fixed line.
+    const text = b.text ?? `[Test transcript of ${b.file!.name}] The coordinator confirms capacity with each program by phone before a placement.`;
+    return c.json({ method: 'fixture', transcript: b.file ? text : undefined, proposals: splitOffline(text, model, b.docType).map((p) => ({ ...p, why: 'Test splitter. No AI was used.' })) });
+  }
   const key = config.userKeys ? c.req.header('x-claude-key')?.trim() : undefined;
   if (config.provider !== 'anthropic' && !key) throw new HttpError(409, config.userKeys ? 'Add your Claude API key in Project settings to split with Claude.' : 'Claude is not set up on this server.');
   try {
-    const out = await splitFieldNotes({ text, items }, { apiKey: key });
-    return c.json({ method: 'claude', proposals: proposalsFromOutput(text, out, items) });
+    if (b.file) {
+      const out = await splitFileFieldNotes({ ...b.file, items, docType: b.docType }, { apiKey: key });
+      return c.json({ method: 'claude', transcript: out.transcript, proposals: proposalsFromOutput(out.transcript, out, items) });
+    }
+    const out = await splitFieldNotes({ text: b.text!, items, docType: b.docType }, { apiKey: key });
+    return c.json({ method: 'claude', proposals: proposalsFromOutput(b.text!, out, items) });
   } catch (e) { throw new HttpError(502, e instanceof Error ? e.message : 'Claude could not split these notes.'); }
 });
 const importedNote = z.object({
   text: z.string().trim().min(1).max(8000), excerpt: z.string().max(8000).default(''),
-  kind: z.enum(IMPORT_KINDS), certainty: z.enum(['observed', 'reported', 'inferred']).nullable(),
+  kind: z.enum(IMPORT_KINDS), certainty: z.enum(CERTAINTIES).nullable(),
   targetId: z.string().max(64).nullable(), sourceId: z.string().max(80).nullable(), category: z.string().max(100).default(''),
   start: z.number().int().min(-1), end: z.number().int().min(-1),
 });
@@ -240,10 +256,13 @@ api.post('/projects/:pid/fieldnotes', async (c) => {
   await need(c, 'editor');
   const b = await body(c, z.object({
     name: z.string().trim().min(1).max(200), text: z.string().min(1).max(400_000), method: z.enum(['phone', 'claude', 'fixture']),
+    docType: z.enum(['notes', 'document']).default('notes'),
+    file: z.object({ name: z.string().max(300), mime: z.string().max(120).default(''), size: z.number().int().min(0).default(0), ref: z.string().max(2000).default(''), link: z.string().max(2000).default('') }).nullable().default(null),
     branchId: z.string().max(64).optional(), sourceId: z.string().max(80).nullable().default(null),
     // Sources to create, referred to from notes as "new:<key>".
     newSources: z.array(z.object({ key: z.string().max(40), anonId: z.string().trim().min(1).max(200), type: z.string().max(40).default('interview'), participantRole: z.string().max(200).default('') })).max(50).default([]),
-    notes: z.array(importedNote).min(1).max(1000),
+    // An archive entry may hold no notes: a file kept for reference, with what it is about written in text.
+    notes: z.array(importedNote).max(1000),
   }));
   const { branch } = await modelFor(c, b.branchId);
   const user = c.get('user');
@@ -252,7 +271,7 @@ api.post('/projects/:pid/fieldnotes', async (c) => {
     const sources = [];
     for (const s of b.newSources) { const d = await upsertDoc(db, pid(c), user, 'sources', { anonId: s.anonId, type: s.type, participantRole: s.participantRole, date: new Date().toISOString().slice(0, 10) }); created.set(`new:${s.key}`, d.id); sources.push(d); }
     const src = (id: string | null) => (id && id.startsWith('new:') ? created.get(id) ?? null : id);
-    const imp = await upsertDoc(db, pid(c), user, 'imports', { name: b.name, text: b.text, sourceId: src(b.sourceId), method: b.method, noteCount: b.notes.length });
+    const imp = await upsertDoc(db, pid(c), user, 'imports', { name: b.name, text: b.text, sourceId: src(b.sourceId), method: b.method, noteCount: b.notes.length, docType: b.docType, file: b.file });
     const notes = [];
     for (const n of b.notes) {
       notes.push(await upsertDoc(db, pid(c), user, 'notes', {

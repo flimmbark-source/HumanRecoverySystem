@@ -17,7 +17,8 @@ export const config = {
   sessionSecret: process.env.SESSION_SECRET ?? (production ? '' : 'dev-secret'),
   cookieSecure: (process.env.COOKIE_SECURE ?? (production ? '1' : '0')) === '1',
   allowSignup: (process.env.ALLOW_SIGNUP ?? '1') === '1',
-  maxBodyBytes: int('MAX_BODY_BYTES', 2_000_000),
+  // Large enough for a PDF or photo sent to be read (as base64) when importing field notes.
+  maxBodyBytes: int('MAX_BODY_BYTES', 30_000_000),
   provider: (process.env.RESEARCH_PROVIDER ?? 'none').toLowerCase(),
   researchModel: process.env.RESEARCH_MODEL ?? 'claude-opus-5-5',
   budgetSeconds: int('RESEARCH_BUDGET_SECONDS', 300),

@@ -45,8 +45,8 @@ export function docxXmlToText(xml: string): string {
     const p = m[1] ?? '';
     let text = '';
     for (const t of p.matchAll(/<w:t\b[^>]*>([^<]*)<\/w:t>|<w:tab\/>|<w:br\b[^>]*\/>|<w:cr\/>/g)) text += t[1] !== undefined ? decode(t[1]) : t[0].startsWith('<w:tab') ? '\t' : '\n';
-    const list = /<w:numPr>/.test(p);
-    lines.push(list && text.trim() ? `- ${text.trim()}` : text.replace(/\s+$/, ''));
+    const list = /<w:numPr>/.test(p), heading = /<w:pStyle w:val="(?:Heading\d|Title|Subtitle)"/i.test(p);
+    lines.push(heading && text.trim() ? `# ${text.trim()}` : list && text.trim() ? `- ${text.trim()}` : text.replace(/\s+$/, ''));
   }
   return lines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
 }

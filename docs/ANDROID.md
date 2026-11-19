@@ -1,6 +1,6 @@
 # Android app
 
-Weave runs on an Android phone as an app. The app contains the web client, the API and a PostgreSQL database (PGlite, which is PostgreSQL compiled to WebAssembly). It needs no server and no network connection.
+Weave runs on an Android phone as an app. The app contains the web client, the API and a PostgreSQL database (PGlite, which is PostgreSQL compiled to WebAssembly). It needs no server. It uses the network only when you press a Claude button in the archive.
 
 ## Install
 
@@ -17,7 +17,9 @@ To update, install a newer APK over the installed app. Your projects stay. If yo
 
 - **One person.** There is no sign-in, no sign-out and no sharing. **Project → People with access** is not shown.
 - **The data stays on the phone**, in the storage of the app. The manifest turns off Android backup, so research notes do not go to a cloud backup without a decision. To keep a copy or to move a project, use **Project → Backup and transfer → Download workspace backup (JSON)**. Then use **Import…** on another phone or on a server. The same file imports in both directions.
-- **No research jobs.** The app has no research provider, so it needs no API key and no network. **Import agent findings** still works.
+- **No research jobs.** Wide and deep research run on a server. **Import agent findings** still works.
+- **The archive** (**Notes → Archive**) takes pasted notes, text files, Word files, PDFs and pictures. Text and Word files are read on the phone, and **Split on this phone** needs no network. **Split with Claude**, and reading PDFs and pictures, use your own Claude API key, saved on the phone in **Project → Claude for the archive**. You see what will be sent before anything is sent. PDFs and pictures go to Claude only if **Allow sending PDFs and images to Claude** is on for the project, because names in them cannot be replaced first.
+- **Original files are not copied into the app.** A file picked from the phone or a cloud app (Drive, OneDrive) keeps a link, and **Open original** opens it in the app that holds it, as long as that app allows it. You can also add a share link.
 - **Exports** open the system save dialog. **Print this preview** opens the system print dialog.
 - **The first start** creates the database. This takes some seconds. Later starts are faster.
 
@@ -26,7 +28,7 @@ To update, install a newer APK over the installed app. Your projects stay. If yo
 - `vite.device.config.ts` builds `dist/device`. It contains the React client and a Web Worker (`src/device/worker.ts`) that runs the same Hono app (`src/server/app.ts`) as the server.
 - The build replaces four server modules with device versions in `src/device/`: `db.ts` (PGlite, stored in IndexedDB), `config.ts`, `reports/fonts.ts` and `providers/anthropic.ts`. It also replaces `node:crypto` and `node:util` with small browser versions. All other server code runs unchanged.
 - The page sends each `/api` request to the worker (`src/device/transport.ts`). A page cannot set a `Cookie` header, so the worker sends the session token as a bearer token. The server accepts both.
-- `android/` is a WebView shell (`MainActivity.java`). It serves `dist/device` from the APK on `https://appassets.androidplatform.net`. It opens the system file picker for imports and the system save dialog for exports, and it opens web links in the browser. The manifest has no INTERNET permission.
+- `android/` is a WebView shell (`MainActivity.java`). It serves `dist/device` from the APK on `https://appassets.androidplatform.net`. It opens the system file picker for imports and archive files (keeping permission to open an archive file again), the system save dialog for exports, and web links in the browser. The INTERNET permission is used only for Claude requests the researcher starts.
 
 ## Build
 

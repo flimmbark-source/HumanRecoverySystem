@@ -3,6 +3,7 @@ import { del, get, patch, post } from './api';
 import { canEdit, fail, flush, getState, loadBranch, loadProject, reloadProjectMeta, toast, useStore } from './store';
 import { Field, onDevice, when } from './ui';
 import { ImportPanel } from './Projects';
+import { ClaudeSettings } from './FieldImport';
 
 const META: [string, string, number][] = [['researchQuestion', 'Research question', 2], ['orgUnit', 'Organization or unit', 1], ['scopeDescription', 'Workflow scope', 3], ['startLabel', 'Where the workflow starts', 1], ['intendedOutcome', 'Intended outcome', 2], ['externalInterfaces', 'Known external interfaces', 2]];
 
@@ -28,6 +29,7 @@ export function Settings() {
         {META.map(([k, label, rows]) => <Field key={k} label={label}><textarea rows={rows} value={meta[k] ?? ''} disabled={ro} onChange={(e) => setMeta({ ...meta, [k]: e.target.value })} /></Field>)}
         {!ro && <button className="primary" onClick={save} data-testid="project-save">Save details</button>}
       </section>
+      <ClaudeSettings />
       {!onDevice && <section className="card" data-testid="members">
         <h3>People with access</h3>
         <p className="micro">Projects are private. Only the people listed here can open this one. Readers cannot change anything.</p>

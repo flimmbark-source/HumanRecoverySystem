@@ -7,7 +7,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { config } from '../config';
 import type { DeepInput, ProviderContext, ResearchProvider, WideInput } from './types';
-import { explainClaudeError, splitWithClaude, type SplitInput, type SplitOutput } from '../../shared/fieldnotes-ai';
+import { explainClaudeError, splitFileWithClaude, splitWithClaude, type FileInput, type FileOutput, type SplitInput, type SplitOutput } from '../../shared/fieldnotes-ai';
 
 let client: Anthropic | null = null;
 const getClient = () => (client ??= new Anthropic());
@@ -108,4 +108,8 @@ ${V2}`;
 /** Splits field notes with Claude, using the server's credentials. */
 export async function splitFieldNotes(input: SplitInput, _opts: { apiKey?: string } = {}): Promise<SplitOutput> {
   try { return await splitWithClaude(getClient(), input); } catch (e) { throw explainClaudeError(e, Anthropic); }
+}
+/** Reads a PDF or image with Claude and splits its text, using the server's credentials. */
+export async function splitFileFieldNotes(input: FileInput, _opts: { apiKey?: string } = {}): Promise<FileOutput> {
+  try { return await splitFileWithClaude(getClient(), input); } catch (e) { throw explainClaudeError(e, Anthropic); }
 }

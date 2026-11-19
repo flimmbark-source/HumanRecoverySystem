@@ -6,7 +6,7 @@ import { terms } from './evidence';
 
 export const IMPORT_KINDS = ['observation', 'measurement', 'question', 'hypothesis'] as const;
 export type ImportKind = (typeof IMPORT_KINDS)[number];
-export type Certainty = 'observed' | 'reported' | 'inferred' | null;
+export type Certainty = 'observed' | 'reported' | 'documented' | 'inferred' | null;
 export const IMPORT_KIND_LABEL: Record<ImportKind, string> = { observation: 'Observation', measurement: 'Measurement', question: 'Question', hypothesis: 'Interpretation' };
 
 export interface Proposal {
@@ -62,7 +62,14 @@ const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 /** Replaces each name, as a whole word, with what the researcher chose (a role such as "Coordinator"). */
 export function replaceNames(doc: string, pairs: { name: string; with: string }[]): string {
   let out = doc;
-  for (const p of pairs) if (p.name.trim() && p.with.trim()) out = out.replace(new RegExp(`\\b${escapeRe(p.name.trim())}(?:'s|’s)?\\b`, 'g'), (m) => p.with.trim() + (m.endsWith('s') && /['’]s$/.test(m) ? m.slice(-2) : ''));
+  for (const p of pairs) if (p.name.trim() && p.with.trim()) {
+    const role = p.with.trim(), cap = role[0].toUpperCase() + role.slice(1);
+    out = out.replace(new RegExp(`\\b${escapeRe(p.name.trim())}(?:'s|’s)?\\b`, 'g'), (m, at: number, all: string) => {
+      // At the start of a line or sentence the role starts with a capital, so "Sam:" stays a speaker label.
+      const startsLine = at === 0 || /(?:^|\n)[ \t]*(?:[-*•–·]|\d{1,2}[.)])?[ \t]*$|[.!?]\s+$/.test(all.slice(Math.max(0, at - 40), at));
+      return (startsLine ? cap : role) + (/['’]s$/.test(m) ? m.slice(-2) : '');
+    });
+  }
   return out;
 }
 
@@ -70,7 +77,8 @@ export function replaceNames(doc: string, pairs: { name: string; with: string }[
 export interface Segment { start: number; end: number; speaker: string; para?: number }
 const BULLET = /^[ \t]*(?:[-*•–·▪◦]|\d{1,2}[.)]|\(?[a-z][.)])[ \t]+/;
 const TIME = /^[ \t]*\[?\d{1,2}[:.]\d{2}(?:\s?[ap]m)?\]?[ \t]*[-–:]?[ \t]*/i;
-const SPEAKER = /^[ \t]*([A-Z][A-Za-z.'’-]{0,20}(?: [A-Z][A-Za-z.'’-]{0,20})?|[A-Z]{1,3}\d?)[ \t]*:[ \t]+(?=\S)/;
+// "Sam: ...", "The program lead: ..." (a role put in place of a name), "PL: ...".
+const SPEAKER = /^[ \t]*([A-Z][A-Za-z.'’-]{0,20}(?: [A-Za-z][A-Za-z.'’-]{0,20}){0,2}|[A-Z]{1,3}\d?)[ \t]*:[ \t]+(?=\S)/;
 const NOT_SPEAKERS = new Set(['Note', 'Notes', 'NB', 'Date', 'Time', 'Location', 'Re', 'Todo', 'TODO', 'Action', 'Actions', 'Follow up', 'Q', 'Question']);
 const HEADER = /^[ \t]*(?:#{1,6}[ \t].*|[^.!?\n]{1,70}:[ \t]*|(?:date|time|location|place|interview|session|participant|participants|observer|present|attendees|duration)\b[^.!?\n]{0,80})$/i;
 const ABBR = new Set(['e.g', 'i.e', 'etc', 'approx', 'min', 'mins', 'hr', 'hrs', 'vs', 'dr', 'mr', 'mrs', 'ms', 'no', 'st', 'prob', 'esp', 'incl', 'dept', 'avg', 'est', 'cf', 'al']);
@@ -84,12 +92,15 @@ export function segment(doc: string): Segment[] {
   const items: Segment[] = [];
   let cur: Segment | null = null, speaker = '';
   const close = () => { if (cur && cur.end > cur.start) items.push(cur); cur = null; };
-  let pos = 0;
+  let pos = 0, first = true;
   for (const line of doc.split('\n')) {
     const lineStart = pos, lineEnd = pos + line.length;
     pos = lineEnd + 1;
     if (!line.trim()) { close(); speaker = ''; continue; }
-    if (HEADER.test(line) && !BULLET.test(line)) { close(); continue; }
+    // The document's first line, when short and unpunctuated, is its title.
+    const title = first && line.trim().length <= 70 && !/[.!?:;]["”')]?\s*$/.test(line) && !BULLET.test(line) && !SPEAKER.test(line);
+    first = false;
+    if (title || (HEADER.test(line) && !BULLET.test(line))) { close(); continue; }
     let start = lineStart, isNew = false;
     const strip = (re: RegExp) => { const m = re.exec(doc.slice(start, lineEnd)); if (m) { start += m[0].length; return m; } return null; };
     if (strip(BULLET) || strip(TIME)) isNew = true;
@@ -102,6 +113,8 @@ export function segment(doc: string): Segment[] {
   return items.flatMap((it) => sentences(doc, it));
 }
 
+/** Shorter than this, a fragment ("Annoyed.", "~20 min.") cannot stand alone as a note. */
+const MIN_NOTE = 18;
 /** Cuts a piece into sentences. Fragments too short to stand alone stay with the sentence before them. */
 function sentences(doc: string, it: Segment): Segment[] {
   const text = doc.slice(it.start, it.end);
@@ -115,12 +128,12 @@ function sentences(doc: string, it: Segment): Segment[] {
     .map((p) => ({ ...p, end: p.start + doc.slice(p.start, p.end).trimEnd().length }));
   const out: Segment[] = [];
   for (const p of parts) {
-    const short = p.end - p.start < 25;
+    const short = p.end - p.start < MIN_NOTE;
     if (short && out.length) out[out.length - 1].end = p.end;
     else out.push({ ...p });
   }
   // A short first fragment joins the next one.
-  if (out.length > 1 && out[0].end - out[0].start < 25) { out[1].start = out[0].start; out.shift(); }
+  if (out.length > 1 && out[0].end - out[0].start < MIN_NOTE) { out[1].start = out[0].start; out.shift(); }
   return out;
 }
 
@@ -131,11 +144,14 @@ const NUMBER = /(?:~|≈|about |around |approx\.? )?\d+(?:[.,]\d+)?\s*(?:-|–|t
 const REPORTED = /\b(said|says|told|tells|reported|reports|mentioned|explained|according to|claims?|complained|described|describes|recalled)\b|["“][^"”]{6,}["”]/i;
 const OBSERVED = /\b(i saw|i watched|i observed|i noticed|observed|watched|we saw|(?:\(|\[)obs(?:\)|\]))/i;
 
-export function classify(text: string, speaker: string): { kind: ImportKind; certainty: Certainty } {
+export type DocType = 'notes' | 'document';
+export function classify(text: string, speaker: string, docType: DocType = 'notes'): { kind: ImportKind; certainty: Certainty } {
   if (TO_ASK.test(text)) return { kind: 'question', certainty: null };
   if (HEDGE.test(text)) return { kind: 'hypothesis', certainty: 'inferred' };
   if (/\?\s*["”)]?\s*$/.test(text)) return { kind: 'question', certainty: null };
   const kind: ImportKind = NUMBER.test(text) ? 'measurement' : 'observation';
+  // A report, procedure or email says how work is meant to run; it is documented, not seen or told.
+  if (docType === 'document') return { kind, certainty: 'documented' };
   // Cautious: observed only when the notes say so; spoken accounts are reported; otherwise left for the researcher.
   const certainty: Certainty = OBSERVED.test(text) ? 'observed' : speaker || REPORTED.test(text) ? 'reported' : null;
   return { kind, certainty };
@@ -172,19 +188,19 @@ export function place(text: string, m: Model): { targetId: string | null; confid
 let seq = 0;
 export const proposalKey = () => `p${Date.now().toString(36)}${(seq++).toString(36)}`;
 
-export function makeProposal(doc: string, s: { start: number; end: number; speaker?: string }, m: Model | null, extra: Partial<Proposal> = {}): Proposal {
+export function makeProposal(doc: string, s: { start: number; end: number; speaker?: string }, m: Model | null, extra: Partial<Proposal> = {}, docType: DocType = 'notes'): Proposal {
   const excerpt = doc.slice(s.start, s.end).trim();
-  const c = classify(excerpt, s.speaker ?? '');
+  const c = classify(excerpt, s.speaker ?? '', docType);
   const p = m ? place(excerpt, m) : { targetId: null, confidence: 'low' as const };
   return { key: proposalKey(), start: s.start, end: s.end, text: excerpt, excerpt, readable: '', ...c, ...p, notOnMap: '', speaker: s.speaker ?? '', sourceId: null, include: true, duplicateOf: null, why: '', ...extra };
 }
 
 /** The splitter that runs on the phone without a network: structure, sentences and word matching. */
-export function splitOffline(doc: string, m: Model | null): Proposal[] {
+export function splitOffline(doc: string, m: Model | null, docType: DocType = 'notes'): Proposal[] {
   // "Watched her triage two applications. She read each one..." - what follows in the same paragraph was seen too.
   let seenPara = -1;
   return segment(doc).map((s) => {
-    const p = makeProposal(doc, s, m);
+    const p = makeProposal(doc, s, m, {}, docType);
     if (p.certainty === 'observed') seenPara = s.para ?? -1;
     else if (s.para === seenPara && p.certainty === null && p.kind !== 'question') p.certainty = 'observed';
     return p;
@@ -192,14 +208,14 @@ export function splitOffline(doc: string, m: Model | null): Proposal[] {
 }
 
 /** A new proposal for the sentence around a position the researcher tapped in text no note covers. */
-export function proposalAt(doc: string, offset: number, taken: Proposal[], m: Model | null): Proposal | null {
+export function proposalAt(doc: string, offset: number, taken: Proposal[], m: Model | null, docType: DocType = 'notes'): Proposal | null {
   const free = (s: Segment) => !taken.some((p) => p.start >= 0 && p.start < s.end && s.start < p.end);
   const hit = segment(doc).find((s) => s.start <= offset && offset <= s.end && free(s));
-  if (hit) return makeProposal(doc, hit, m);
+  if (hit) return makeProposal(doc, hit, m, {}, docType);
   // Inside a heading or metadata line: offer that line.
   const ls = doc.lastIndexOf('\n', offset - 1) + 1, le = doc.indexOf('\n', offset) < 0 ? doc.length : doc.indexOf('\n', offset);
   const line = { start: ls + (doc.slice(ls, le).length - doc.slice(ls, le).trimStart().length), end: le - (doc.slice(ls, le).length - doc.slice(ls, le).trimEnd().length), speaker: '' };
-  return line.end > line.start && free(line) ? makeProposal(doc, line, m) : null;
+  return line.end > line.start && free(line) ? makeProposal(doc, line, m, {}, docType) : null;
 }
 
 // ---- review edits ---------------------------------------------------------------------------------------
@@ -207,9 +223,10 @@ const edited = (p: Proposal) => p.text !== p.excerpt;
 /** Joins two proposals into one note covering both, keeping the first one's settings. */
 export function merge(doc: string, a: Proposal, b: Proposal): Proposal {
   const [x, y] = a.start <= b.start ? [a, b] : [b, a];
-  if (x.start < 0 || y.start < 0) return { ...x, text: `${x.text} ${y.text}`, excerpt: `${x.excerpt} ${y.excerpt}`, key: proposalKey() };
+  // Joining is a deliberate choice, so the joined note is included even if a part had been left out.
+  if (x.start < 0 || y.start < 0) return { ...x, text: `${x.text} ${y.text}`, excerpt: `${x.excerpt} ${y.excerpt}`, key: proposalKey(), include: true, duplicateOf: null };
   const excerpt = doc.slice(x.start, y.end).trim();
-  return { ...x, key: proposalKey(), end: y.end, excerpt, text: edited(x) || edited(y) ? `${x.text} ${y.text}` : excerpt, readable: '', targetId: x.targetId ?? y.targetId, notOnMap: x.notOnMap || y.notOnMap };
+  return { ...x, key: proposalKey(), end: y.end, excerpt, text: edited(x) || edited(y) ? `${x.text} ${y.text}` : excerpt, readable: '', targetId: x.targetId ?? y.targetId, notOnMap: x.notOnMap || y.notOnMap, include: true, duplicateOf: null };
 }
 /** Splits an unedited proposal at a position in its text. */
 export function splitAt(doc: string, p: Proposal, at: number, m: Model | null): [Proposal, Proposal] | null {

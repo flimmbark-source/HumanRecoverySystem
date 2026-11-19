@@ -110,13 +110,29 @@ async function run() {
   await insight.getByTestId('card-details').waitFor();
   if ((await insight.getAttribute('data-expanded')) !== 'true') throw new Error('The insight was not left open.');
 
-  step('the data is still there after the app restarts');
+  step('pasted field notes are split on the phone, checked and saved to the archive');
+  await p.getByTestId('nav-notes').click();
+  await p.getByTestId('archive-add').click();
+  await p.getByTestId('import-text').fill('- Pasted on an Android phone: the coordinator phones every applicant.\n- Takes about 20 min per placement.');
+  await p.getByTestId('import-name').fill('Phone import');
+  await p.getByTestId('split-phone').click();
+  await p.getByTestId('import-review').waitFor();
+  await p.getByTestId('fn-span').first().click();
+  await p.getByTestId('fn-editor').waitFor();
+  await device.screenshot({ path: `${OUT}/4-archive-review.png` });
+  await back(); // closes the note editor, not the review
+  if (!(await p.getByTestId('import-review').isVisible())) throw new Error('Back left the review instead of closing the note editor.');
+  await p.getByTestId('review-save').click();
+  await p.getByTestId('archive-item').filter({ hasText: 'Phone import' }).waitFor();
+
+    step('the data is still there after the app restarts');
   p = await restart();
   await p.getByTestId('projects').waitFor({ timeout: 120_000 });
   await p.locator('[data-project="Volunteer placement (synthetic demo)"]').click();
   await p.getByTestId('nav-notes').click();
   await p.getByText('Captured on an Android phone.').first().waitFor({ timeout: 30_000 });
-  await device.screenshot({ path: `${OUT}/4-notes-after-restart.png` });
+  await device.screenshot({ path: `${OUT}/5-notes-after-restart.png` });
+  await p.getByText('Pasted on an Android phone').first().waitFor({ timeout: 30_000 });
   await p.getByTestId('nav-insights').click();
   await p.getByTestId('insight').filter({ hasText: 'Written on an Android phone.' }).getByTestId('insight-toggle').click();
   await p.getByTestId('insight').filter({ hasText: 'Written on an Android phone.' }).getByTestId('card-details').waitFor();

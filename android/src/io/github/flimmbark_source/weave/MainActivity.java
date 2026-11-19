@@ -4,6 +4,8 @@ import android.app.Activity;
 import android.content.ActivityNotFoundException;
 import android.content.Intent;
 import android.content.pm.ApplicationInfo;
+import android.database.Cursor;
+import android.provider.OpenableColumns;
 import android.graphics.Color;
 import android.net.Uri;
 import android.os.Build;
@@ -22,10 +24,13 @@ import android.webkit.WebViewClient;
 import android.widget.FrameLayout;
 import android.widget.Toast;
 import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.Locale;
+import org.json.JSONException;
+import org.json.JSONObject;
 
 /**
  * Weave in a WebView. The page, the API and the PostgreSQL database (PGlite) run inside the WebView from
@@ -36,7 +41,9 @@ public class MainActivity extends Activity {
     // The bundled files are served on this https host, which Android reserves for app assets, so IndexedDB,
     // Web Workers and WebAssembly behave as on the web. The data is stored per host: do not change it.
     private static final String HOST = "appassets.androidplatform.net";
-    private static final int PICK_FILE = 1, SAVE_FILE = 2;
+    private static final int PICK_FILE = 1, SAVE_FILE = 2, PICK_ARCHIVE = 3;
+    // Largest file handed to the page for an archive entry (it travels to the page as base64).
+    private static final int MAX_ARCHIVE_BYTES = 25 * 1024 * 1024;
     private static final int LIGHT_NAVIGATION_BAR = 0x10; // View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR (API 26)
 
     private WebView web;
@@ -99,6 +106,10 @@ public class MainActivity extends Activity {
     @Override
     protected void onActivityResult(int request, int result, Intent data) {
         Uri uri = result == RESULT_OK && data != null ? data.getData() : null;
+        if (request == PICK_ARCHIVE) {
+            archivePicked(uri);
+            return;
+        }
         if (request == PICK_FILE && picking != null) {
             picking.onReceiveValue(uri == null ? null : new Uri[] { uri });
             picking = null;
@@ -113,6 +124,52 @@ public class MainActivity extends Activity {
                 toast("The file could not be saved.");
             }
         }
+    }
+
+    /**
+     * An archive file: the app keeps permission to open it again (from the phone or a cloud app such as Drive),
+     * reads it once for the page, and stores only its address. The file itself is never copied into the app.
+     */
+    private void archivePicked(Uri uri) {
+        JSONObject out = new JSONObject();
+        try {
+            if (uri == null) { deliver("null"); return; }
+            try {
+                getContentResolver().takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                out.put("lasting", true);
+            } catch (SecurityException e) {
+                out.put("lasting", false); // the app that holds the file does not allow opening it later
+            }
+            String name = "file";
+            long size = -1;
+            try (Cursor c = getContentResolver().query(uri, null, null, null, null)) {
+                if (c != null && c.moveToFirst()) {
+                    int n = c.getColumnIndex(OpenableColumns.DISPLAY_NAME), z = c.getColumnIndex(OpenableColumns.SIZE);
+                    if (n >= 0 && !c.isNull(n)) name = c.getString(n);
+                    if (z >= 0 && !c.isNull(z)) size = c.getLong(z);
+                }
+            }
+            if (size > MAX_ARCHIVE_BYTES) { out.put("error", "This file is larger than 25 MB."); deliver(out.toString()); return; }
+            ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+            try (InputStream in = getContentResolver().openInputStream(uri)) {
+                if (in == null) throw new IOException("no stream");
+                byte[] buf = new byte[65536];
+                for (int r; (r = in.read(buf)) > 0; ) {
+                    bytes.write(buf, 0, r);
+                    if (bytes.size() > MAX_ARCHIVE_BYTES) { out.put("error", "This file is larger than 25 MB."); deliver(out.toString()); return; }
+                }
+            }
+            String mime = getContentResolver().getType(uri);
+            out.put("name", name).put("mime", mime == null ? "" : mime).put("size", bytes.size()).put("ref", uri.toString())
+                .put("data", Base64.encodeToString(bytes.toByteArray(), Base64.NO_WRAP));
+            deliver(out.toString());
+        } catch (IOException | RuntimeException | JSONException e) {
+            deliver("{\"error\":\"The file could not be read.\"}");
+        }
+    }
+
+    private void deliver(String json) {
+        web.evaluateJavascript("window.weaveFilePicked && window.weaveFilePicked(" + json + ")", null);
     }
 
     private void toast(String text) {
@@ -195,6 +252,43 @@ public class MainActivity extends Activity {
                     } catch (ActivityNotFoundException e) {
                         saving = null;
                         toast("No app on this phone can save files.");
+                    }
+                }
+            });
+        }
+
+        /** Opens the system picker for an archive file; the result arrives in window.weaveFilePicked. */
+        @JavascriptInterface
+        public void pickFile() {
+            runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    Intent pick = new Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*")
+                        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+                    try {
+                        startActivityForResult(pick, PICK_ARCHIVE);
+                    } catch (ActivityNotFoundException e) {
+                        toast("No app on this phone can pick files.");
+                        deliver("null");
+                    }
+                }
+            });
+        }
+
+        /** Opens an archived file again in the app that handles it, from where it was picked. */
+        @JavascriptInterface
+        public void openFile(final String ref, final String mime) {
+            runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        Intent view = new Intent(Intent.ACTION_VIEW).setDataAndType(Uri.parse(ref), mime == null || mime.isEmpty() ? "*/*" : mime)
+                            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
+                        startActivity(view);
+                    } catch (ActivityNotFoundException e) {
+                        toast("No app on this phone can open this kind of file.");
+                    } catch (SecurityException e) {
+                        toast("This file can no longer be opened from here. Add it again.");
                     }
                 }
             });

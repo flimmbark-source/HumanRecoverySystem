@@ -113,7 +113,7 @@ export function evidenceFor(insightIds: string[], directNoteIds: string[], notes
   const evidenceSources = new Set(evidence.map(({ note }) => note.sourceId).filter(Boolean));
   const gaps: string[] = [];
   if (!accounts.length) gaps.push('No supporting observation or measurement is linked yet.');
-  else if (!evidence.length) gaps.push('Supporting accounts are inferred or have no recorded certainty. Look for an observed or reported account to test the interpretation.');
+  else if (!evidence.length) gaps.push('Supporting accounts are documents, interpretations, or have no recorded certainty. Look for an observed or reported account to test the interpretation.');
   else if (!evidenceSources.size) gaps.push('Observed or reported accounts have no recorded source.');
   else if (evidenceSources.size === 1) gaps.push('Observed or reported support comes from a single source.');
   if (contradicting.length) gaps.push(`${contradicting.length} contradicting observation${contradicting.length === 1 ? '' : 's'} not yet reconciled.`);

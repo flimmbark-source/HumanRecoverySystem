@@ -161,7 +161,7 @@ export function convertLegacy(input: unknown): LegacyResult {
   const now = str(input.exportedAt, 40) || new Date().toISOString();
   const bundle: Bundle = {
     format: WORKSPACE_FORMAT, schemaVersion: WORKSPACE_SCHEMA_VERSION, exportedAt: now,
-    project: { name: str(input.base?.name, 200) || 'Imported workflow', researchQuestion: '', orgUnit: '', scopeDescription: '', startLabel: '', intendedOutcome: '', externalInterfaces: '', status: 'draft' },
+    project: { name: str(input.base?.name, 200) || 'Imported workflow', researchQuestion: '', orgUnit: '', scopeDescription: '', startLabel: '', intendedOutcome: '', externalInterfaces: '', status: 'draft', aiFiles: 'off' },
     branches: [], revisions: [], sources: [], notes: [], insights: [], links: [], opportunities: [], options: [], runs: [], candidates: [], imports: [],
   };
   const baseRevId = `rev-base-${Number.isFinite(input.baseVersion) ? input.baseVersion : 1}`;

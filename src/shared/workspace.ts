@@ -5,6 +5,8 @@ import { idSchema, layoutSchema, validateModel, type Model, type ValidationIssue
 export const WORKSPACE_FORMAT = 'weave-workspace';
 export const WORKSPACE_SCHEMA_VERSION = 3;
 
+export const CERTAINTIES = ['observed', 'reported', 'documented', 'inferred'] as const;
+export const CERTAINTY_LABEL: Record<(typeof CERTAINTIES)[number], string> = { observed: 'Seen', reported: 'Told', documented: 'Documented', inferred: 'Interpretation' };
 export const NOTE_KINDS = ['observation', 'measurement', 'hypothesis', 'question', 'insight', 'recommendation'] as const;
 export const SOURCE_TYPES = ['interview', 'observation', 'walkthrough', 'document', 'public', 'working'] as const;
 export const RELATIONS = ['supports', 'contradicts', 'related', 'possible_cause'] as const;
@@ -22,6 +24,8 @@ export const projectMetaSchema = z.object({
   name: z.string().min(1).max(200),
   researchQuestion: text(2000), orgUnit: text(300), scopeDescription: text(4000), startLabel: text(300),
   intendedOutcome: text(2000), externalInterfaces: text(2000), status: z.enum(['draft', 'active', 'archived']).default('draft'),
+  // Whether PDFs and images may be sent to Claude to be read. Names in them cannot be replaced before that.
+  aiFiles: z.enum(['off', 'on']).default('off'),
 });
 export type ProjectMeta = z.infer<typeof projectMetaSchema>;
 
@@ -49,7 +53,8 @@ export const noteSchema = z.object({
   text: z.string().min(1).max(8000),
   rawText: text(8000), // the note as first captured; preserved when the text is reworked
   sourceId: idSchema.nullable().default(null),
-  certainty: z.enum(['observed', 'reported', 'inferred']).nullable().default(null),
+  // documented: written in a report, procedure, form or email. It says how work is meant to run, not that it does.
+  certainty: z.enum(CERTAINTIES).nullable().default(null),
   group: text(200), color: text(20), category: text(100),
   targetId: idSchema.nullable().default(null), // node, connection or activity ID in the model
   anchorBranchId: idSchema.nullable().default(null),
@@ -66,6 +71,9 @@ export type Note = z.infer<typeof noteSchema>;
 export const importSchema = z.object({
   id: idSchema, name: z.string().min(1).max(200), text: z.string().min(1).max(400_000),
   sourceId: idSchema.nullable().default(null),
+  docType: z.enum(['notes', 'document']).default('notes'),
+  // The original is not kept in the app: where to open it again (a file on the phone, or a link), if anywhere.
+  file: z.object({ name: z.string().max(300), mime: z.string().max(120).default(''), size: z.number().int().min(0).default(0), ref: z.string().max(2000).default(''), link: z.string().max(2000).default('') }).nullable().default(null),
   method: z.enum(['phone', 'claude', 'fixture']).default('phone'),
   noteCount: z.number().int().min(0).default(0),
   createdAt: text(40),

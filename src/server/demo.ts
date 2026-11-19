@@ -9,7 +9,7 @@ export function demoBundle(): Bundle {
   if (!r.bundle) throw new Error('Bundled fixture failed to convert: ' + JSON.stringify(r.issues));
   const b = structuredClone(r.bundle);
   b.project = {
-    name: 'Volunteer placement (synthetic demo)', status: 'active', orgUnit: 'Synthetic volunteer programme',
+    name: 'Volunteer placement (synthetic demo)', status: 'active', aiFiles: 'off', orgUnit: 'Synthetic volunteer programme',
     researchQuestion: 'Where does a volunteer placement wait, and what small change would shorten the wait without adding work for coordinators?',
     scopeDescription: 'From a volunteer submitting an application to a confirmed placement. Program leads are outside the reviewed scope but interface directly with it.',
     startLabel: 'Volunteer submits an application', intendedOutcome: 'Current-state map, prioritized opportunity sheet and a leadership brief.', externalInterfaces: 'Volunteers (applicants); program leads who confirm capacity.',

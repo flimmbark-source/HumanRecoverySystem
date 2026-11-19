@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { canEdit, closeModal, discardRecovered, fail, flush, getState, loadBranch, loadProject, openModal, resolveKeepMine, resolveUseTheirs, restoreRecovered, saveNow, setMode, setNav, setState, signOut, startInsight, useStore, type Mode, type Nav } from './store';
+import { canEdit, closeModal, discardRecovered, fail, flush, getState, loadBranch, loadProject, openModal, resolveKeepMine, resolveUseTheirs, restoreRecovered, saveNow, setMode, setNav, setState, signOut, startImport, startInsight, useStore, type Mode, type Nav } from './store';
 import { addEdge, addNode } from './ops';
 import { Graph } from './Graph';
 import { Inspector } from './Inspector';
@@ -137,6 +137,7 @@ export function Workspace({ pid }: { pid: string }) {
               <button role="menuitem" onClick={() => openModal('note')} data-testid="add-note">Note{selection ? ' on selection' : ''} <kbd>N</kbd></button>
               <button role="menuitem" onClick={() => { setNav('map'); openModal('node'); }} data-testid="add-node">Node…</button>
               <button role="menuitem" onClick={() => { setNav('map'); openModal('connect'); }} data-testid="add-connection">Connection…</button>
+              <button role="menuitem" onClick={startImport} data-testid="add-archive">Notes or a file to the archive…</button>
               <button role="menuitem" onClick={() => startInsight()}>Insight</button>
               <button role="menuitem" onClick={() => { setNav('research'); openModal('candidates'); }}>Review agent findings…</button>
             </div>)}

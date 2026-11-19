@@ -2,11 +2,17 @@
 import { useMemo, useState } from 'react';
 import { canEdit, openModal, useStore } from './store';
 import { NoteCard, QuickCapture } from './Capture';
+import { Archive, ImportFlow } from './FieldImport';
 import { Empty } from './ui';
 import { anchorState, targetLabel } from '../shared/diff';
 import { NOTE_KINDS } from '../shared/workspace';
 
 export function NotesBoard() {
+  const importing = useStore((s) => !!s.importDraft);
+  return importing ? <ImportFlow /> : <Board />;
+}
+
+function Board() {
   const notes = useStore((s) => s.evidence.notes), sources = useStore((s) => s.evidence.sources), model = useStore((s) => s.model)!, selection = useStore((s) => s.selection);
   const [kind, setKind] = useState(''), [source, setSource] = useState(''), [text, setText] = useState(''), [anchor, setAnchor] = useState(''), [groupBy, setGroupBy] = useState<'group' | 'kind' | 'source' | 'target'>('group');
   const shown = notes.filter((n) => (!kind || n.kind === kind) && (!source || (source === '-' ? !n.sourceId : n.sourceId === source)) && (!text || `${n.text} ${n.category} ${n.group}`.toLowerCase().includes(text.toLowerCase())) && (!anchor || anchorState(model, n.targetId) === anchor));
@@ -23,6 +29,7 @@ export function NotesBoard() {
     <div className="page" data-testid="notes-board">
       <header className="page-head"><div><h1>Fieldwork notes</h1><p>{notes.length} notes · {inbox} in the unassigned inbox · {sources.length} sources</p></div>{canEdit() && <button onClick={() => openModal('session')}>Session…</button>}</header>
       <QuickCapture targetId={selection?.id ?? null} />
+      <Archive />
       <div className="filters" role="group" aria-label="Filter notes">
         <input type="search" placeholder="Search notes" value={text} onChange={(e) => setText(e.target.value)} aria-label="Search notes" />
         <select value={kind} onChange={(e) => setKind(e.target.value)} aria-label="Filter by type" data-testid="filter-kind"><option value="">All types</option>{NOTE_KINDS.map((k) => <option key={k}>{k}</option>)}</select>

@@ -10,7 +10,7 @@ export const config: typeof serverConfig = {
   cookieSecure: false,
   allowSignup: false,
   // Imports arrive from the page, not over a network, so a server's larger workspace exports still fit.
-  maxBodyBytes: 20_000_000,
+  maxBodyBytes: 40_000_000,
   provider: 'none',
   researchModel: 'claude-opus-5-5',
   budgetSeconds: 300,
