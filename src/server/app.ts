@@ -5,6 +5,7 @@ import { HttpError, createUser, endSession, projectRole, requireUser, startSessi
 import { config } from './config';
 import { one, pool, q, tx } from './db';
 import { blankBundle, demoBundle } from './demo';
+import { exampleBundle } from './example';
 import { providerStatus } from './providers';
 import { buildBrief } from './reports/brief';
 import { briefPdf, mapPdf } from './reports/pdf';
@@ -77,14 +78,14 @@ api.get('/projects', async (c) => {
   return c.json({ projects: rows });
 });
 
-const newProject = projectMetaSchema.extend({ template: z.enum(['blank', 'demo']).default('blank'), outcomeLabel: z.string().max(140).default('') });
+const newProject = projectMetaSchema.extend({ template: z.enum(['blank', 'demo', 'example']).default('blank'), outcomeLabel: z.string().max(140).default('') });
 api.post('/projects', async (c) => {
   const user = c.get('user');
   const { template, outcomeLabel, ...meta } = await body(c, newProject);
   const id = await tx(async (db) => {
-    const bundle = template === 'demo' ? demoBundle() : blankBundle(meta, meta.startLabel, outcomeLabel);
-    if (template === 'demo' && meta.name.trim()) bundle.project.name = meta.name;
-    const pid = await createProject(db, user, bundle.project, { synthetic: template === 'demo' });
+    const bundle = template === 'demo' ? demoBundle() : template === 'example' ? exampleBundle() : blankBundle(meta, meta.startLabel, outcomeLabel);
+    if (template !== 'blank' && meta.name.trim()) bundle.project.name = meta.name;
+    const pid = await createProject(db, user, bundle.project, { synthetic: template !== 'blank' });
     await writeBundle(db, pid, user, bundle);
     await audit(db, pid, user, 'project.create', 'project', pid, { template });
     return pid;

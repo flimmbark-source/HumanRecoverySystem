@@ -444,3 +444,24 @@ describe('research jobs and review inbox', () => {
     expect(again.notes.find((n: any) => n.id === 't1').targetId).toBe('e2');
   });
 });
+
+describe('the worked example', () => {
+  it('creates a whole study from the template: brief, findings to review, a draft to adopt, and a backup that imports again', async () => {
+    const id = ok(await editor.post('/projects', { name: 'Worked example copy', template: 'example' })).id;
+    const ev = ok(await editor.get(`/projects/${id}/evidence`));
+    expect([ev.sources, ev.notes, ev.imports, ev.insights, ev.links, ev.opportunities, ev.options].map((x: unknown[]) => x.length)).toEqual([11, 45, 3, 5, 25, 4, 7]);
+    const brief = ok(await editor.get(`/projects/${id}/export/brief.json`));
+    expect(brief).toMatchObject({ projectName: 'Worked example copy', synthetic: true });
+    expect(brief.recommendations[0]).toMatchObject({ heading: 'Recommendation', title: 'Allocate straightforward cases the next working day' });
+    expect(brief.recommendations[0].comparison.lines[0].change).toBe('−15 min');
+    const research = ok(await editor.get(`/projects/${id}/research`));
+    expect(research.candidates.filter((c: any) => c.status === 'pending' && !c.stale && !c.refIssues.length)).toHaveLength(3);
+
+    ok(await editor.post(`/projects/${id}/branches/sc-notes/adopt`, {}));
+    expect((await head(editor, id)).revision.model.edges.map((e: any) => e.id)).toContain('e-phone');
+
+    const backup = JSON.parse(await (await editor.get(`/projects/${id}/export/workspace.json`)).res.text());
+    expect(validateBundle(backup).issues).toEqual([]);
+    ok(await editor.post('/import', { data: backup, name: 'Worked example, imported' }));
+  });
+});

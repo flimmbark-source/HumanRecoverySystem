@@ -8,6 +8,7 @@ Weave runs on an Android phone as an app. The app contains the web client, the A
 2. Download **Weave.apk**. The direct link is <https://github.com/flimmbark-source/HumanRecoverySystem/releases/latest/download/Weave.apk>.
 3. Open the downloaded file. If Android asks, let your browser install unknown apps.
 4. Open **Weave**.
+5. To look around first, choose **New project**, then **A worked example**: a whole study with invented data.
 
 The app needs Android 8.0 or later and a current Android System WebView (version 105 or later). The Play Store updates the WebView.
 
