@@ -11,7 +11,7 @@ function rows(b: Brief): string[][] {
     const line = (label: string) => r.comparison?.lines.find((l) => l.label === label);
     const like = line('Monthly effort, like for like'), modeled = line('Monthly effort at modeled volumes');
     return [String(i + 1), r.title, r.heading, r.evidenceLevel, String(r.observations.filter((o) => o.relation === 'supports').length), String(r.observations.filter((o) => o.relation === 'contradicts').length),
-      [r.insights.map((x) => x.title).join('; '), r.interpretation].filter(Boolean).join(' — '), r.gaps.join(' | '), r.preserve, r.stakeholders,
+      r.interpretation, r.gaps.join(' | '), r.preserve, r.stakeholders,
       r.option?.title ?? '', r.option?.kindLabel ?? '', r.option ? (r.option.smallestReversible ? 'Yes' : 'No') : '', r.option?.benefits ?? '', r.option?.downsides ?? '', r.option?.shiftedWork ?? '', r.option?.effort ?? '', r.option?.costs ?? '',
       r.option?.tradeoffs ?? '', r.option?.confidence ?? '', r.option?.unknowns ?? '', r.option?.test ?? '',
       like ? `${like.change} (${like.note})` : 'Not modeled', modeled ? `${modeled.change} (${modeled.note})` : 'Not modeled', r.comparison ? r.comparison.cash[0] : 'Unknown', r.comparison?.guardrails.map((g) => g.metric).join('; ') ?? '', r.validationPlan];
@@ -30,10 +30,10 @@ export async function opportunityXlsx(b: Brief): Promise<Buffer> {
   rows(b).forEach((r) => ws.addRow(r));
   ws.columns.forEach((c, i) => { c.width = i === 0 ? 6 : [1, 6, 7, 13, 14].includes(i) ? 38 : 22; c.alignment = { wrapText: true, vertical: 'top' }; });
   const opts = wb.addWorksheet('Options compared');
-  opts.addRow(['Opportunity', 'Option', 'Type', 'Selected', 'Benefits', 'Downsides', 'Confidence']).font = { bold: true };
+  opts.addRow(['Opportunity', 'Option', 'Type', 'Selected', 'Benefits', 'Downsides', 'Confidence', 'Pilot scope']).font = { bold: true };
   for (const r of b.recommendations) {
-    if (r.option) opts.addRow([r.title, r.option.title, r.option.kindLabel, 'Yes', r.option.benefits, r.option.downsides, r.option.confidence]);
-    for (const a of r.alternatives) opts.addRow([r.title, a.title, a.kindLabel, 'No', a.benefits, a.downsides, a.confidence]);
+    if (r.option) opts.addRow([r.title, r.option.title, r.option.kindLabel, 'Yes', r.option.benefits, r.option.downsides, r.option.confidence, r.option.withinPilotScope ? 'Within scope' : 'Exploratory']);
+    for (const a of r.alternatives) opts.addRow([r.title, a.title, a.kindLabel, 'No', a.benefits, a.downsides, a.confidence, a.withinPilotScope ? 'Within scope' : 'Exploratory']);
   }
   opts.columns.forEach((c) => { c.width = 30; c.alignment = { wrapText: true, vertical: 'top' }; });
   const prov = wb.addWorksheet('Provenance');

@@ -3,10 +3,10 @@ export class ApiError extends Error {
   get offline() { return this.status === 0; }
 }
 
-export async function api<T = any>(method: string, path: string, body?: unknown): Promise<T> {
+export async function api<T = any>(method: string, path: string, body?: unknown, extraHeaders: Record<string, string> = {}): Promise<T> {
   let res: Response;
   try {
-    res = await fetch('/api' + path, { method, credentials: 'same-origin', headers: body === undefined ? {} : { 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
+    res = await fetch('/api' + path, { method, credentials: 'same-origin', headers: { ...(body === undefined ? {} : { 'content-type': 'application/json' }), ...extraHeaders }, body: body === undefined ? undefined : JSON.stringify(body) });
   } catch {
     throw new ApiError(0, 'Could not reach the server. Your work is kept in this browser.');
   }
@@ -18,7 +18,7 @@ export async function api<T = any>(method: string, path: string, body?: unknown)
   return json as T;
 }
 export const get = <T = any>(p: string) => api<T>('GET', p);
-export const post = <T = any>(p: string, b: unknown = {}) => api<T>('POST', p, b);
+export const post = <T = any>(p: string, b: unknown = {}, h: Record<string, string> = {}) => api<T>('POST', p, b, h);
 export const put = <T = any>(p: string, b: unknown = {}) => api<T>('PUT', p, b);
 export const patch = <T = any>(p: string, b: unknown = {}) => api<T>('PATCH', p, b);
 export const del = <T = any>(p: string) => api<T>('DELETE', p);

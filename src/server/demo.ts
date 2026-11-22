@@ -9,7 +9,7 @@ export function demoBundle(): Bundle {
   if (!r.bundle) throw new Error('Bundled fixture failed to convert: ' + JSON.stringify(r.issues));
   const b = structuredClone(r.bundle);
   b.project = {
-    name: 'Volunteer placement (synthetic demo)', status: 'active', orgUnit: 'Synthetic volunteer programme',
+    name: 'Volunteer placement (synthetic demo)', status: 'active', aiFiles: 'off', orgUnit: 'Synthetic volunteer programme',
     researchQuestion: 'Where does a volunteer placement wait, and what small change would shorten the wait without adding work for coordinators?',
     scopeDescription: 'From a volunteer submitting an application to a confirmed placement. Program leads are outside the reviewed scope but interface directly with it.',
     startLabel: 'Volunteer submits an application', intendedOutcome: 'Current-state map, prioritized opportunity sheet and a leadership brief.', externalInterfaces: 'Volunteers (applicants); program leads who confirm capacity.',
@@ -32,6 +32,6 @@ export function blankBundle(meta: Bundle['project'], startLabel: string, outcome
     format: WORKSPACE_FORMAT, schemaVersion: WORKSPACE_SCHEMA_VERSION, exportedAt: now, project: meta,
     branches: [{ id: 'baseline', kind: 'baseline', name: 'Baseline', hypothesis: '', parentBranchId: null, baseRevisionId: null, headRevisionId: 'rev-1', layout: { n1: { x: 300, y: 350 }, n2: { x: 760, y: 350 } }, origin: null, status: 'draft', createdAt: now }],
     revisions: [{ id: 'rev-1', branchId: 'baseline', parentRevisionId: null, seq: 1, summary: 'Project created', author: '', createdAt: now, restoredFrom: null, model }],
-    sources: [], notes: [], insights: [], links: [], opportunities: [], options: [], runs: [], candidates: [],
+    sources: [], notes: [], insights: [], links: [], opportunities: [], options: [], runs: [], candidates: [], imports: [],
   };
 }

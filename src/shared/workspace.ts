@@ -5,6 +5,8 @@ import { idSchema, layoutSchema, validateModel, type Model, type ValidationIssue
 export const WORKSPACE_FORMAT = 'weave-workspace';
 export const WORKSPACE_SCHEMA_VERSION = 3;
 
+export const CERTAINTIES = ['observed', 'reported', 'documented', 'inferred'] as const;
+export const CERTAINTY_LABEL: Record<(typeof CERTAINTIES)[number], string> = { observed: 'Seen', reported: 'Told', documented: 'Documented', inferred: 'Interpretation' };
 export const NOTE_KINDS = ['observation', 'measurement', 'hypothesis', 'question', 'insight', 'recommendation'] as const;
 export const SOURCE_TYPES = ['interview', 'observation', 'walkthrough', 'document', 'public', 'working'] as const;
 export const RELATIONS = ['supports', 'contradicts', 'related', 'possible_cause'] as const;
@@ -22,6 +24,8 @@ export const projectMetaSchema = z.object({
   name: z.string().min(1).max(200),
   researchQuestion: text(2000), orgUnit: text(300), scopeDescription: text(4000), startLabel: text(300),
   intendedOutcome: text(2000), externalInterfaces: text(2000), status: z.enum(['draft', 'active', 'archived']).default('draft'),
+  // Whether PDFs and images may be sent to Claude to be read. Names in them cannot be replaced before that.
+  aiFiles: z.enum(['off', 'on']).default('off'),
 });
 export type ProjectMeta = z.infer<typeof projectMetaSchema>;
 
@@ -49,20 +53,38 @@ export const noteSchema = z.object({
   text: z.string().min(1).max(8000),
   rawText: text(8000), // the note as first captured; preserved when the text is reworked
   sourceId: idSchema.nullable().default(null),
-  certainty: z.enum(['observed', 'reported', 'inferred']).nullable().default(null),
+  // documented: written in a report, procedure, form or email. It says how work is meant to run, not that it does.
+  certainty: z.enum(CERTAINTIES).nullable().default(null),
   group: text(200), color: text(20), category: text(100),
   targetId: idSchema.nullable().default(null), // node, connection or activity ID in the model
   anchorBranchId: idSchema.nullable().default(null),
   anchorRevisionId: idSchema.nullable().default(null),
   episode: episodeSchema.nullable().default(null),
   excerptApproved: z.boolean().default(false), // this text may be sent to a provider and quoted in exports
+  // For a note split from imported field notes: the import and where its words sit in that document.
+  origin: z.object({ importId: idSchema, start: z.number().int().min(-1), end: z.number().int().min(-1) }).nullable().default(null),
   createdAt: text(40),
 });
 export type Note = z.infer<typeof noteSchema>;
 
+/** Field notes as imported, after names were replaced: the context each note came from. */
+export const importSchema = z.object({
+  id: idSchema, name: z.string().min(1).max(200), text: z.string().min(1).max(400_000),
+  sourceId: idSchema.nullable().default(null),
+  docType: z.enum(['notes', 'document']).default('notes'),
+  // The original is not kept in the app: where to open it again (a file on the phone, or a link), if anywhere.
+  file: z.object({ name: z.string().max(300), mime: z.string().max(120).default(''), size: z.number().int().min(0).default(0), ref: z.string().max(2000).default(''), link: z.string().max(2000).default('') }).nullable().default(null),
+  method: z.enum(['phone', 'claude', 'fixture']).default('phone'),
+  noteCount: z.number().int().min(0).default(0),
+  createdAt: text(40),
+});
+export type ImportRecord = z.infer<typeof importSchema>;
+
 export const insightSchema = z.object({
   id: idSchema, title: text(300), body: text(20000),
   modelLinks: z.array(idSchema).max(50).default([]),
+  // For a linked map item, the details the insight is about: keys from itemFacts, or note:<id> for a note on it.
+  focus: z.record(idSchema, z.array(z.string().max(80)).max(60)).default({}),
   createdAt: text(40), updatedAt: text(40),
 });
 export type Insight = z.infer<typeof insightSchema>;
@@ -78,6 +100,7 @@ export type EvidenceLink = z.infer<typeof linkSchema>;
 const score = z.number().int().min(1).max(5).nullable().default(null);
 export const opportunitySchema = z.object({
   id: idSchema, title: z.string().min(1).max(300),
+  reportTitle: z.string().max(300).optional(),
   insightIds: z.array(idSchema).max(50).default([]),
   noteIds: z.array(idSchema).max(200).default([]),
   targetIds: z.array(idSchema).max(50).default([]),
@@ -107,7 +130,7 @@ export const branchSchema = z.object({
   baseRevisionId: idSchema.nullable().default(null), // pinned, immutable comparison revision
   headRevisionId: idSchema,
   layout: layoutSchema.default({}),
-  origin: z.object({ type: z.enum(['insight', 'opportunity', 'option', 'blank']), id: idSchema.nullable() }).nullable().default(null),
+  origin: z.object({ type: z.enum(['insight', 'opportunity', 'option', 'blank', 'archive']), id: idSchema.nullable() }).nullable().default(null),
   status: z.enum(['draft', 'in_review', 'reviewed']).default('draft'),
   createdAt: text(40),
 });
@@ -153,6 +176,7 @@ export const bundleSchema = z.object({
   options: z.array(optionSchema).max(2000).default([]),
   runs: z.array(runRecordSchema).max(500).default([]),
   candidates: z.array(candidateRecordSchema).max(5000).default([]),
+  imports: z.array(importSchema).max(2000).default([]),
 });
 export type Bundle = Omit<z.infer<typeof bundleSchema>, 'revisions'> & { revisions: Revision[] };
 
@@ -170,7 +194,7 @@ export function validateBundle(input: unknown): { bundle?: Bundle; issues: Valid
   const branchIds = ids('branches', b.branches), revIds = ids('revisions', b.revisions), sourceIds = ids('sources', b.sources);
   const noteIds = ids('notes', b.notes), insightIds = ids('insights', b.insights), oppIds = ids('opportunities', b.opportunities);
   const optionIds = ids('options', b.options), runIds = ids('runs', b.runs), candIds = ids('candidates', b.candidates);
-  ids('links', b.links);
+  ids('links', b.links); ids('imports', b.imports);
   const need = (set: Set<string>, id: string | null | undefined, path: string, what: string) => { if (id && !set.has(id)) issues.push({ path, message: `${what} "${id}" does not exist` }); };
 
   if (b.branches.filter((x) => x.kind === 'baseline').length !== 1) issues.push({ path: 'branches', message: 'a workspace needs exactly one baseline' });

@@ -7,16 +7,20 @@
     "node": ">=20"
   },
   "scripts": {
-    "dev": "concurrently -k \"tsx watch src/server/main.ts\" \"vite\"",
+    "codespace": "bash .devcontainer/run-weave.sh",
+    "dev": "concurrently -k \"node --import tsx --watch src/server/main.ts\" \"vite\"",
     "build": "tsc --noEmit && vite build && esbuild src/server/main.ts src/server/migrate.ts src/server/seed.ts src/server/worker.ts --bundle --platform=node --format=esm --packages=external --outdir=dist/server",
-    "start": "node dist/server/main.js",
+    "build:device": "vite build -c vite.device.config.ts",
+    "start": "node scripts/start.mjs",
     "worker": "node dist/server/worker.js",
     "migrate": "tsx src/server/migrate.ts",
-    "seed": "tsx src/server/seed.ts",
+    "seed": "node --import tsx src/server/seed.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:pglite": "vitest run -c vitest.pglite.config.ts",
     "test:e2e": "playwright test --trace off",
-    "test:all": "npm run typecheck && npm test && npm run build && npm run test:e2e",
+    "test:device": "playwright test -c playwright.device.config.ts --trace off",
+    "test:all": "npm run typecheck && npm test && npm run test:pglite && npm run build && npm run test:e2e && npm run build:device && npm run test:device",
     "check:provider": "tsx scripts/check-provider.ts",
     "backup": "scripts/backup.sh",
     "verify:backup": "scripts/verify-backup.sh"
@@ -34,6 +38,8 @@
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "0.5.14",
+    "@noble/hashes": "2.4.0",
     "@playwright/test": "^1.63.0",
     "@types/node": "^22.0.0",
     "@types/pdfkit": "^0.13.5",
@@ -41,6 +47,7 @@
     "@types/react": "^18.3.0",
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.0",
+    "buffer": "6.0.3",
     "concurrently": "^9.0.0",
     "esbuild": "^0.24.0",
     "tsx": "^4.19.0",

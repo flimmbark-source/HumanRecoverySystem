@@ -6,6 +6,7 @@ Built from the handoff in `reference/handoff/` (product spec, acceptance tests, 
 
 - Acceptance status and known gaps: [`docs/ACCEPTANCE-RESULTS.md`](docs/ACCEPTANCE-RESULTS.md)
 - Deployment and operations: [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)
+- Android app: [`docs/ANDROID.md`](docs/ANDROID.md)
 
 ## Stack
 
@@ -15,10 +16,26 @@ TypeScript throughout. React + Vite client (the v0.7 SVG canvas is ported, not r
 src/shared/    model schema, sentence generator, impact engine, routes, diff, legacy import, candidate validation, layout
 src/server/    API, auth, store, research jobs, providers, reports, migrate, seed
 src/client/    React app
+src/device/    the API and its database (PGlite) in a Web Worker, for the Android app
+android/       the Android WebView shell and its build script
 migrations/    SQL migrations
 tests/         unit, API (real PostgreSQL) and browser (Playwright) tests
 reference/     the original handoff, unchanged
 ```
+
+## Weave on an Android phone
+
+The Android app runs the client, the API and the database on the phone, with no server. It uses the network only for Claude requests you start from the archive. On the phone, download **[Weave.apk](https://github.com/flimmbark-source/HumanRecoverySystem/releases/latest/download/Weave.apk)** from the [latest release](https://github.com/flimmbark-source/HumanRecoverySystem/releases/latest) and open it. Android 8 or later. See [`docs/ANDROID.md`](docs/ANDROID.md) for what differs from the server, backups, the build and the signing key.
+
+## Try Weave in GitHub Codespaces
+
+From this branch on GitHub, choose **Code → Codespaces → Create codespace**. Weave starts automatically on creation and when the Codespace resumes. If the browser tab does not open, use **Ports → Weave (5173) → Open in Browser**. Keep the port private.
+
+**Demo login:** `owner@weave.test` / `weave-demo-1`.
+
+For an existing Codespace, pull this branch and run `npm start`. It starts the demo if needed and prints the forwarded link. If PostgreSQL tools are missing, back up any existing database and run **Codespaces: Rebuild Container** once from the Command Palette. Startup logs are in `.weave-codespace/app.log`.
+
+The demo database lives in the ignored `.weave-codespace/` directory. To use another database, create `.weave-codespace/no-autostart` before starting the Codespace, then run `npm run dev` with your existing `DATABASE_URL`. The manual foreground demo command is `npm run codespace`.
 
 ## Local setup
 
@@ -59,6 +76,8 @@ Open http://localhost:5173. The seed creates a synthetic project and four accoun
 | `reader@weave.test` | reader |
 | `outsider@weave.test` | none (for checking isolation) |
 
+To see every part of Weave with data in it, choose **New project → A worked example**. It makes a whole study of a referral workflow, from field notes to a recommendation, with invented data: a timed map with two routes, sources, notes and an archive, insights, four opportunities in different states, a scenario with its guardrails, a draft from notes to adopt, and research findings to review. The Android app has the same choice.
+
 To run the production build locally instead:
 
 ```bash
@@ -77,13 +96,16 @@ That serves the app and API together on http://localhost:8787.
 | --- | --- |
 | `npm run dev` | API on :8787 and Vite on :5173 with reload |
 | `npm run build` | Typecheck, client build, server bundle into `dist/` |
-| `npm start` | Run the production build (applies pending migrations first) |
+| `npm start` | Start the demo in Codespaces with default settings, or serve the compiled app locally or with a configured database |
 | `npm run worker` | Run the job worker as its own process (set `RUN_WORKER=0` on the web process) |
 | `npm run migrate` | Apply pending migrations |
 | `npm run seed` | Create the synthetic accounts and project (safe to repeat) |
 | `npm test` | Unit and API tests against `weave_test` (**resets that database**) |
 | `npm run test:e2e` | Browser tests against the production build (**resets `weave_test`**; run `npm run build` first) |
-| `npm run test:all` | Typecheck, unit + API, build, browser tests |
+| `npm run test:pglite` | The API tests again, on PGlite (the database in the Android app) |
+| `npm run build:device` | Build the client, API and database that run on a phone into `dist/device` |
+| `npm run test:device` | Browser tests of `dist/device` at phone size (run `npm run build:device` first) |
+| `npm run test:all` | Typecheck, unit + API on PostgreSQL and on PGlite, build, browser tests, device build and its tests |
 | `npm run verify:backup` | Back up `DATABASE_URL`, restore into a scratch database, compare, clean up |
 | `npm run check:provider` | Optional live check of the real research provider (needs credentials) |
 
@@ -128,7 +150,7 @@ The v1 candidate contract is the bundled `schema.json`, validated verbatim. Vers
 - **Evidence is never rewritten by a scenario.** Notes belong to the project and keep their anchor. Where a scenario removes the target, the note is shown as historical there and still attached on the baseline.
 - **Missing is not zero.** An empty duration is unknown. Headline figures appear only when every included input is known; otherwise the result reads incomplete, with a known-only subtotal shown separately.
 - **Effort, elapsed time, cash and human effects stay separate.** Released time is capacity. Cash is counted only from an item with a documented mechanism, in one currency.
-- **Exports are anonymized in one place** (`src/server/reports/brief.ts`): approved excerpts and approved source IDs only, no participant roles, no internal notes.
+- **Leadership exports** use the title and interpretation prepared in Decide, plus approved excerpts and anonymous source IDs. Insight drafts and workspace opportunity titles remain in the workspace and its full JSON backup.
 - **Projects are private.** Every query is scoped by project membership; an unknown or inaccessible project ID is a 404. Readers cannot mutate anything.
 
 ## Measuring research effort

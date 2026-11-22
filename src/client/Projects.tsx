@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { get, post } from './api';
 import { issuesText, ApiError } from './api';
 import { fail, signIn, signOut, toast, useStore } from './store';
-import { Field, when } from './ui';
+import { Field, onDevice, when } from './ui';
 
 export function Login() {
   const [email, setEmail] = useState(''), [password, setPassword] = useState(''), [name, setName] = useState(''), [signup, setSignup] = useState(false), [error, setError] = useState('');
@@ -61,6 +61,9 @@ function Decisions({ list }: { list: { recordId: string; kind: string; message: 
   return (<div className="alert warn" data-testid="import-decisions"><b>{list.length} record{list.length === 1 ? '' : 's'} need your attention</b><ul>{list.map((d, i) => <li key={i} data-kind={d.kind} data-record={d.recordId}>{d.message} <em>{d.applied}</em></li>)}</ul></div>);
 }
 
+// Default names, the same as in the demo and example bundles on the server.
+const TEMPLATE_NAME: Record<string, string> = { demo: 'Volunteer placement (synthetic demo)', example: 'Referral to first session (worked example)' };
+
 export function Projects() {
   const user = useStore((s) => s.user)!;
   const [projects, setProjects] = useState<any[] | null>(null), [mode, setMode] = useState<null | 'new' | 'import'>(null);
@@ -70,14 +73,14 @@ export function Projects() {
   const open = (id: string) => { location.hash = `#/p/${id}`; };
   const create = async (e: React.FormEvent) => {
     e.preventDefault();
-    try { const r = await post('/projects', { ...f, name: f.name.trim() || (f.template === 'demo' ? 'Volunteer placement (synthetic demo)' : 'Untitled workflow') }); open(r.id); } catch (err) { fail(err); }
+    try { const r = await post('/projects', { ...f, name: f.name.trim() || (f.template === 'blank' ? 'Untitled workflow' : TEMPLATE_NAME[f.template]) }); open(r.id); } catch (err) { fail(err); }
   };
   const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setF({ ...f, [k]: e.target.value });
   return (
     <main className="projects" data-testid="projects">
       <header className="projects-head">
         <div className="brand"><div className="brandmark">w</div><div><div className="brandname">weave</div><div className="kicker">Operational Studio</div></div></div>
-        <span>{user.name} <button className="linkbtn" onClick={signOut} data-testid="signout">Sign out</button></span>
+        {!onDevice && <span>{user.name} <button className="linkbtn" onClick={signOut} data-testid="signout">Sign out</button></span>}
       </header>
       <div className="projects-body">
         <div className="page-head"><div><h1>Projects</h1><p>One focused workflow per project. Projects are private to the people you add.</p></div>
@@ -87,8 +90,9 @@ export function Projects() {
             <fieldset className="choice"><legend>Start from</legend>
               <label><input type="radio" name="tpl" checked={f.template === 'blank'} onChange={() => setF({ ...f, template: 'blank' })} data-testid="tpl-blank" /> A blank map with a start and an outcome</label>
               <label><input type="radio" name="tpl" checked={f.template === 'demo'} onChange={() => setF({ ...f, template: 'demo' })} data-testid="tpl-demo" /> The synthetic demo (invented data, for learning the tool)</label>
+              <label><input type="radio" name="tpl" checked={f.template === 'example'} onChange={() => setF({ ...f, template: 'example' })} data-testid="tpl-example" /> A worked example: a whole study, from field notes to a recommendation (invented data)</label>
             </fieldset>
-            <Field label="Workflow name"><input value={f.name} onChange={set('name')} placeholder={f.template === 'demo' ? 'Volunteer placement (synthetic demo)' : 'e.g. Volunteer placement'} data-testid="np-name" /></Field>
+            <Field label="Workflow name"><input value={f.name} onChange={set('name')} placeholder={f.template === 'blank' ? 'e.g. Volunteer placement' : TEMPLATE_NAME[f.template]} data-testid="np-name" /></Field>
             {f.template === 'blank' && (<>
               <Field label="Research question"><textarea rows={2} value={f.researchQuestion} onChange={set('researchQuestion')} /></Field>
               <div className="row2"><Field label="Organization or unit"><input value={f.orgUnit} onChange={set('orgUnit')} /></Field><Field label="Known external interfaces"><input value={f.externalInterfaces} onChange={set('externalInterfaces')} /></Field></div>
@@ -100,7 +104,7 @@ export function Projects() {
           </form>
         )}
         {mode === 'import' && <div className="card"><h3>Import into a new project</h3><ImportPanel onDone={open} /></div>}
-        {projects === null ? <p className="micro">Loading…</p> : !projects.length ? <div className="empty"><b>No projects yet</b><p>Create a blank project, open the synthetic demo, or import an export.</p></div> : (
+        {projects === null ? <p className="micro">Loading…</p> : !projects.length ? <div className="empty"><b>No projects yet</b><p>Create a blank project, open the synthetic demo or the worked example, or import an export.</p></div> : (
           <ul className="projectlist">{projects.map((p) => (
             <li key={p.id}><button className="projectcard" onClick={() => open(p.id)} data-project={p.name}>
               <b>{p.name}</b>{p.isSynthetic && <span className="chip warnchip">synthetic</span>}<span className="chip">{p.role}</span>

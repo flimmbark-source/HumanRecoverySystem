@@ -17,7 +17,8 @@ export const config = {
   sessionSecret: process.env.SESSION_SECRET ?? (production ? '' : 'dev-secret'),
   cookieSecure: (process.env.COOKIE_SECURE ?? (production ? '1' : '0')) === '1',
   allowSignup: (process.env.ALLOW_SIGNUP ?? '1') === '1',
-  maxBodyBytes: int('MAX_BODY_BYTES', 2_000_000),
+  // Large enough for a PDF or photo sent to be read (as base64) when importing field notes.
+  maxBodyBytes: int('MAX_BODY_BYTES', 30_000_000),
   provider: (process.env.RESEARCH_PROVIDER ?? 'none').toLowerCase(),
   researchModel: process.env.RESEARCH_MODEL ?? 'claude-opus-5-5',
   budgetSeconds: int('RESEARCH_BUDGET_SECONDS', 300),
@@ -26,5 +27,7 @@ export const config = {
   runWorker: (process.env.RUN_WORKER ?? '1') === '1',
   jobPollMs: int('JOB_POLL_MS', 2000),
   allowDbReset: process.env.ALLOW_DB_RESET === '1',
+  // Whether a request may bring its own Claude key (the phone app, where the key is saved on the phone).
+  userKeys: false,
 };
 if (production && !config.sessionSecret) throw new Error('SESSION_SECRET is required in production');

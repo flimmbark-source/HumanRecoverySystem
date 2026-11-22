@@ -161,8 +161,8 @@ export function convertLegacy(input: unknown): LegacyResult {
   const now = str(input.exportedAt, 40) || new Date().toISOString();
   const bundle: Bundle = {
     format: WORKSPACE_FORMAT, schemaVersion: WORKSPACE_SCHEMA_VERSION, exportedAt: now,
-    project: { name: str(input.base?.name, 200) || 'Imported workflow', researchQuestion: '', orgUnit: '', scopeDescription: '', startLabel: '', intendedOutcome: '', externalInterfaces: '', status: 'draft' },
-    branches: [], revisions: [], sources: [], notes: [], insights: [], links: [], opportunities: [], options: [], runs: [], candidates: [],
+    project: { name: str(input.base?.name, 200) || 'Imported workflow', researchQuestion: '', orgUnit: '', scopeDescription: '', startLabel: '', intendedOutcome: '', externalInterfaces: '', status: 'draft', aiFiles: 'off' },
+    branches: [], revisions: [], sources: [], notes: [], insights: [], links: [], opportunities: [], options: [], runs: [], candidates: [], imports: [],
   };
   const baseRevId = `rev-base-${Number.isFinite(input.baseVersion) ? input.baseVersion : 1}`;
   if (base) {
@@ -225,7 +225,7 @@ export function convertLegacy(input: unknown): LegacyResult {
     const note: Note = {
       id: n.id, kind: (NOTE_KINDS as readonly string[]).includes(n.kind) ? n.kind : 'observation', text: str(n.text, 8000) || '(empty)', rawText: str(n.text, 8000),
       sourceId: source?.id ?? null, certainty: null, group: str(n.group, 200), color: str(n.color, 20), category: '', targetId: n.target || null,
-      anchorBranchId: n.target ? 'baseline' : null, anchorRevisionId: n.target ? baseRevId : null, episode: null, excerptApproved: false, createdAt: now,
+      anchorBranchId: n.target ? 'baseline' : null, anchorRevisionId: n.target ? baseRevId : null, episode: null, excerptApproved: false, origin: null, createdAt: now,
     };
     bundle.notes.push(note);
   });

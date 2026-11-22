@@ -29,14 +29,21 @@ export async function verifyPassword(pw: string, stored: string): Promise<boolea
   return actual.length === expected.length && timingSafeEqual(actual, expected);
 }
 const hashToken = (t: string) => createHash('sha256').update(t + config.sessionSecret).digest('hex');
+// The app on a phone runs this API in a Web Worker. A request made there cannot carry a Cookie header,
+// so the session token is also accepted as a bearer token.
+const sessionToken = (c: Context) => getCookie(c, COOKIE) ?? /^Bearer (\S+)$/.exec(c.req.header('authorization') ?? '')?.[1];
 
-export async function startSession(c: Context, userId: string) {
+/** Creates a session for the user and returns its token. */
+export async function createSession(userId: string): Promise<string> {
   const token = randomBytes(32).toString('hex');
   await pool.query(`INSERT INTO auth_sessions (token_hash, user_id, expires_at) VALUES ($1, $2, now() + interval '${SESSION_DAYS} days')`, [hashToken(token), userId]);
-  setCookie(c, COOKIE, token, { httpOnly: true, sameSite: 'Lax', secure: config.cookieSecure, path: '/', maxAge: SESSION_DAYS * 86400 });
+  return token;
+}
+export async function startSession(c: Context, userId: string) {
+  setCookie(c, COOKIE, await createSession(userId), { httpOnly: true, sameSite: 'Lax', secure: config.cookieSecure, path: '/', maxAge: SESSION_DAYS * 86400 });
 }
 export async function endSession(c: Context) {
-  const token = getCookie(c, COOKIE);
+  const token = sessionToken(c);
   if (token) await pool.query('DELETE FROM auth_sessions WHERE token_hash = $1', [hashToken(token)]);
   deleteCookie(c, COOKIE, { path: '/' });
 }
@@ -44,7 +51,7 @@ export async function endSession(c: Context) {
 export type Env = { Variables: { user: User } };
 
 export const requireUser: MiddlewareHandler<Env> = async (c, next) => {
-  const token = getCookie(c, COOKIE);
+  const token = sessionToken(c);
   const user = token ? await one<User>(pool, `SELECT u.id, u.email, u.name FROM auth_sessions s JOIN users u ON u.id = s.user_id WHERE s.token_hash = $1 AND s.expires_at > now()`, [hashToken(token)]) : null;
   if (!user) throw new HttpError(401, 'Sign in to continue.');
   // Cookie-authenticated writes must come from our own pages.

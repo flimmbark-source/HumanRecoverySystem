@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { canEdit, editModel, openModal, select, setState, toast, useStore } from './store';
 import { addInternalActivity, deleteItem, updateActivity, updateActivityForEdge, updateEdge, updateNode } from './ops';
 import { NoteCard, QuickCapture } from './Capture';
+import { InsightDetailPicker, Pick, useInsightCtx } from './Insights';
+import { BasisSummary } from './Basis';
 import { BasisChip, Field, QtyInput, Sentence, TokenKey, fmtMinutes } from './ui';
 import { TYPE_COLOR, KIND_ICON } from './Graph';
 import { ScenarioPanel } from './Scenario';
@@ -11,19 +13,19 @@ import { computeEffort } from '../shared/impact';
 
 const SCOPE_LABEL = { internal: 'Within the reviewed scope', external: 'External, with a direct interface', context: 'Context only (can be filtered)' };
 
-function useDisclosure(key: string, id: string) {
+function useDisclosure(key: string, id: string, initial = false) {
   // Each layer opens deliberately and stays as the researcher left it while the same item is selected.
-  const [open, setOpen] = useState(false);
-  useEffect(() => { setOpen(false); }, [id, key]);
+  const [open, setOpen] = useState(initial);
+  useEffect(() => { setOpen(initial); }, [id, key, initial]);
   return { open, onToggle: (e: React.SyntheticEvent<HTMLDetailsElement>) => setOpen(e.currentTarget.open) };
 }
 
-function TimingEditor({ a, onChange, disabled }: { a: WActivity; onChange: (fn: (a: WActivity) => void, field: string) => void; disabled: boolean }) {
+function TimingEditor({ a, item, onChange, disabled }: { a: WActivity; item: string; onChange: (fn: (a: WActivity) => void, field: string) => void; disabled: boolean }) {
   return (
     <>
-      <QtyInput label="Active time" unitLabel="minutes" q={a.activeMinutes} disabled={disabled} testid="edit-active" onChange={(q) => onChange((x) => { x.activeMinutes = q; }, 'active')} />
-      <QtyInput label="Waiting time" unitLabel="hours" scale={60} q={a.waitMinutes} disabled={disabled} testid="edit-wait" onChange={(q) => onChange((x) => { x.waitMinutes = q; }, 'wait')} />
-      <QtyInput label="Occurrences" unitLabel="per case" q={a.occurrencesPerCase} disabled={disabled} testid="edit-occ" onChange={(q) => onChange((x) => { x.occurrencesPerCase = q; }, 'occ')} />
+      <Pick item={item} k="active" label="Active time"><QtyInput label="Active time" unitLabel="minutes" q={a.activeMinutes} disabled={disabled} testid="edit-active" onChange={(q) => onChange((x) => { x.activeMinutes = q; }, 'active')} /></Pick>
+      <Pick item={item} k="waiting" label="Waiting time"><QtyInput label="Waiting time" unitLabel="hours" scale={60} q={a.waitMinutes} disabled={disabled} testid="edit-wait" onChange={(q) => onChange((x) => { x.waitMinutes = q; }, 'wait')} /></Pick>
+      <Pick item={item} k="occurrences" label="Times per case"><QtyInput label="Occurrences" unitLabel="per case" q={a.occurrencesPerCase} disabled={disabled} testid="edit-occ" onChange={(q) => onChange((x) => { x.occurrencesPerCase = q; }, 'occ')} /></Pick>
       <Field label="How was the active time established?" hint="Method, sample size, period and source ID"><input value={a.activeMinutes.method ?? ''} disabled={disabled} placeholder="e.g. timed 12 cases, Process walk 02" onChange={(e) => onChange((x) => { x.activeMinutes.method = e.target.value; }, 'method')} /></Field>
       <label className="check"><input type="checkbox" checked={a.includedInWorkload} disabled={disabled} onChange={(e) => onChange((x) => { x.includedInWorkload = e.target.checked; }, 'incl')} /> Count this activity in workload totals</label>
       <p className="micro">An empty box means unknown. Enter 0 only when zero is what was found.</p>
@@ -37,7 +39,11 @@ function EdgeLens({ model, edge }: { model: Model; edge: WEdge }) {
   const a = activityForEdge(model, edge.id);
   const d = describeEdge(model, edge, a);
   const [gaps, setGaps] = useState(false);
-  const perf = useDisclosure('perf', edge.id), evid = useDisclosure('evid', edge.id), edit = useDisclosure('edit', edge.id);
+  const inCtx = useInsightCtx();
+  // With the map open for an insight, the notes are shown so they can be picked.
+  const perf = useDisclosure('perf', edge.id), evid = useDisclosure('evid', edge.id, inCtx), edit = useDisclosure('edit', edge.id);
+  const P = (k: string, label: string, children: React.ReactNode, inline = false) => <Pick item={edge.id} k={k} label={label} inline={inline}>{children}</Pick>;
+  const EDGE_FIELD_KEY: Partial<Record<keyof WEdge, [string, string]>> = { workItem: ['input', 'Goes in'], inputState: ['input', 'Goes in'], outputState: ['output', 'Comes out'], result: ['output', 'Comes out'], conditions: ['conditions', 'Conditions'], exceptions: ['exceptions', 'Exceptions'] };
   const ro = !canEdit() || mode === 'timeline';
   const from = model.nodes.find((n) => n.id === edge.from), to = model.nodes.find((n) => n.id === edge.to);
   const effort = computeEffort(model);
@@ -46,9 +52,11 @@ function EdgeLens({ model, edge }: { model: Model; edge: WEdge }) {
   const operational = edge.type === 'flow' || edge.type === 'info';
   const basis = a ? (a.activeMinutes.value === null ? 'unknown' : a.activeMinutes.basis) : 'unknown';
   const setAct = (fn: (x: WActivity) => void, field: string) => updateActivityForEdge(edge.id, fn, field);
-  const txt = (k: keyof WEdge, label: string, placeholder = '') => (
-    <Field label={label}><input value={String(edge[k] ?? '')} disabled={ro} placeholder={placeholder} data-testid={`edit-${k}`} onChange={(e) => updateEdge(edge.id, { [k]: e.target.value } as Partial<WEdge>, k)} /></Field>
-  );
+  const txt = (k: keyof WEdge, label: string, placeholder = '') => {
+    const field = <Field label={label}><input value={String(edge[k] ?? '')} disabled={ro} placeholder={placeholder} data-testid={`edit-${k}`} onChange={(e) => updateEdge(edge.id, { [k]: e.target.value } as Partial<WEdge>, k)} /></Field>;
+    const pick = EDGE_FIELD_KEY[k];
+    return pick ? P(pick[0], pick[1], field) : field;
+  };
 
   return (
     <div className="lens" style={{ ['--lens-accent' as string]: TYPE_COLOR[edge.type] }} data-testid="edge-lens">
@@ -58,14 +66,15 @@ function EdgeLens({ model, edge }: { model: Model; edge: WEdge }) {
           {operational && <BasisChip basis={basis} />}
         </div>
         <h2 data-testid="lens-title">{edge.label}</h2>
-        <div className="lens-actors" data-testid="lens-route">
+        <BasisSummary id={edge.id} />
+        {P('route', 'From → to', <div className="lens-actors" data-testid="lens-route">
           <button onClick={() => from && select({ type: 'node', id: from.id })}>{from?.label ?? 'Unknown'}</button><span aria-hidden="true">{edge.directed ? '→' : '—'}</span><span className="sr">to</span>
           <button onClick={() => to && select({ type: 'node', id: to.id })}>{to?.label ?? 'Unknown'}</button>
-        </div>
+        </div>)}
       </div>
 
       <div className="lens-narrative">
-        <p data-testid="sentence"><Sentence segments={d.segments} /></p>
+        {P('sentence', 'What happens', <p data-testid="sentence"><Sentence segments={d.segments} /></p>)}
         <div className="lens-narrative-footer">
           {d.unknowns.length > 0 ? <button className="linkbtn warn" aria-expanded={gaps} onClick={() => setGaps(!gaps)} data-testid="gaps-toggle">{d.unknowns.length} not yet known</button> : <span className="micro">All parts identified</span>}
           <button className="linkbtn" onClick={() => { void navigator.clipboard?.writeText(d.sentence); toast('Sentence copied'); }}>Copy</button>
@@ -76,16 +85,16 @@ function EdgeLens({ model, edge }: { model: Model; edge: WEdge }) {
 
       {operational && (
         <div className="lens-compact-flow" data-testid="iao">
-          <div className="lens-flow-cell in"><small>Input</small><strong>{d.input.item || <i>Item not identified</i>}</strong><em data-testid="iao-in-state">{d.input.state || 'state not defined'}</em></div>
+          {P('input', 'Goes in', <div className="lens-flow-cell in"><small>Input</small><strong>{d.input.item || <i>Item not identified</i>}</strong><em data-testid="iao-in-state">{d.input.state || 'state not defined'}</em></div>)}
           <span className="lens-flow-arrow" aria-hidden="true">→</span>
-          <div className="lens-flow-cell work"><small>Action</small><strong data-testid="iao-performer">{d.performer ?? 'Performer not identified'}</strong><em>{d.verb ?? 'action not classified'} · {PERFORMER_RELATION_LABEL[d.performerRelation]}</em></div>
+          <div className="lens-flow-cell work"><small>Action</small>{P('performer', 'Who does it', <strong data-testid="iao-performer">{d.performer ?? 'Performer not identified'}</strong>, true)}{P('action', 'Action', <em>{d.verb ?? 'action not classified'} · {PERFORMER_RELATION_LABEL[d.performerRelation]}</em>, true)}</div>
           <span className="lens-flow-arrow" aria-hidden="true">→</span>
-          <div className="lens-flow-cell out"><small>Output</small><strong>{d.output.result || <i>Result not described</i>}</strong><em data-testid="iao-out-state">{d.output.state || 'state not defined'}</em></div>
+          {P('output', 'Comes out', <div className="lens-flow-cell out"><small>Output</small><strong>{d.output.result || <i>Result not described</i>}</strong><em data-testid="iao-out-state">{d.output.state || 'state not defined'}</em></div>)}
         </div>
       )}
-      {a && (<div className="lens-inline-metrics"><span><b>{fmtMinutes(a.activeMinutes.value)}</b> active</span><span><b>{fmtMinutes(a.waitMinutes.value)}</b> waiting</span><span><b>{notes.length}</b> {notes.length === 1 ? 'note' : 'notes'}</span></div>)}
-      {edge.description && <p className="lens-description">{edge.description}</p>}
-      {(edge.conditions || edge.exceptions) && <p className="lens-description">{edge.conditions && <>Applies when: {edge.conditions}. </>}{edge.exceptions && <>Exceptions: {edge.exceptions}.</>}</p>}
+      {a && (<div className="lens-inline-metrics">{P('active', 'Active time', <span><b>{fmtMinutes(a.activeMinutes.value)}</b> active</span>, true)}{P('waiting', 'Waiting time', <span><b>{fmtMinutes(a.waitMinutes.value)}</b> waiting</span>, true)}<span><b>{notes.length}</b> {notes.length === 1 ? 'note' : 'notes'}</span></div>)}
+      {edge.description && P('description', 'Description', <p className="lens-description">{edge.description}</p>)}
+      {(edge.conditions || edge.exceptions) && <p className="lens-description">{edge.conditions && P('conditions', 'Conditions', <>Applies when: {edge.conditions}. </>, true)}{edge.exceptions && P('exceptions', 'Exceptions', <>Exceptions: {edge.exceptions}.</>, true)}</p>}
 
       <div className="lens-disclosure-list">
         <details className="lens-disclosure" data-testid="disc-performance" {...perf}>
@@ -93,10 +102,10 @@ function EdgeLens({ model, edge }: { model: Model; edge: WEdge }) {
           {perf.open && (<div className="lens-pane">
             {!a ? <p className="micro">This {EDGE_TYPE_LABEL[edge.type].toLowerCase()} link has no activity, so it adds no effort or waiting. Add timing in Edit if work really happens here.</p> : (<>
               <div className="lens-data-pair">
-                <div><small>Active per occurrence</small><strong data-testid="perf-active">{fmtMinutes(a.activeMinutes.value)}</strong><span><BasisChip basis={basis} /></span></div>
-                <div><small>Waiting</small><strong data-testid="perf-wait">{fmtMinutes(a.waitMinutes.value)}</strong><span><BasisChip basis={a.waitMinutes.value === null ? 'unknown' : a.waitMinutes.basis} /></span></div>
+                {P('active', 'Active time', <div><small>Active per occurrence</small><strong data-testid="perf-active">{fmtMinutes(a.activeMinutes.value)}</strong><span><BasisChip basis={basis} /></span></div>)}
+                {P('waiting', 'Waiting time', <div><small>Waiting</small><strong data-testid="perf-wait">{fmtMinutes(a.waitMinutes.value)}</strong><span><BasisChip basis={a.waitMinutes.value === null ? 'unknown' : a.waitMinutes.basis} /></span></div>)}
               </div>
-              <div className="lens-fact-row"><span>Occurrences per case</span><b>{a.occurrencesPerCase.value ?? 'Unknown'}</b></div>
+              {P('occurrences', 'Times per case', <div className="lens-fact-row"><span>Occurrences per case</span><b>{a.occurrencesPerCase.value ?? 'Unknown'}</b></div>)}
               <div className="lens-fact-row"><span>Effort per case</span><b>{contribution?.perCase != null ? `${contribution.perCase} min` : 'Unknown'}</b></div>
               <div className="lens-fact-row"><span>Monthly effort at {effort.volume ?? 'unknown'} cases</span><b>{contribution?.perCase != null && effort.volume !== null ? `${Math.round((contribution.perCase * effort.volume) / 6) / 10} h` : 'Unknown'}</b></div>
               <div className="lens-fact-row"><span>Counted in workload</span><b>{a.includedInWorkload ? 'Yes' : 'No'}</b></div>
@@ -113,7 +122,7 @@ function EdgeLens({ model, edge }: { model: Model; edge: WEdge }) {
           <summary><span className="disclosure-icon evidence">✎</span><span>Evidence<small>{notes.length ? `${notes.length} attached ${notes.length === 1 ? 'note' : 'notes'}` : 'Nothing attached yet'}</small></span><span className="disclosure-chevron">⌄</span></summary>
           {evid.open && (<div className="lens-pane">
             <QuickCapture targetId={edge.id} compact />
-            {notes.map((n) => <NoteCard key={n.id} note={n} showTarget={false} />)}
+            {notes.map((n) => <Pick key={n.id} item={edge.id} k={`note:${n.id}`} label="this note"><NoteCard note={n} showTarget={false} /></Pick>)}
             <p className="micro">The generated sentence is a reading of the model, not new evidence.</p>
           </div>)}
         </details>
@@ -132,21 +141,21 @@ function EdgeLens({ model, edge }: { model: Model; edge: WEdge }) {
               <Field label="To"><select value={edge.to} disabled={ro} onChange={(e) => e.target.value !== edge.from && updateEdge(edge.id, { to: e.target.value })}>{model.nodes.map((n) => <option key={n.id} value={n.id}>{n.label}</option>)}</select></Field>
             </div>
             <h4>Who does what</h4>
-            <Field label="Performer" hint="Chosen explicitly. Never assumed from the direction of the line.">
+            {P('performer', 'Who does it', <Field label="Performer" hint="Chosen explicitly. Never assumed from the direction of the line.">
               <select value={a?.performerId ?? ''} disabled={ro} data-testid="edit-performer" onChange={(e) => setAct((x) => { x.performerId = e.target.value || null; }, 'performer')}>
                 <option value="">Unknown / not identified</option>
                 {model.nodes.map((n) => <option key={n.id} value={n.id}>{n.label}{n.id === edge.from ? ' (sender)' : n.id === edge.to ? ' (receiver)' : ' (third party)'}</option>)}
               </select>
-            </Field>
-            <Field label="Action"><select value={a?.actionCode ?? ''} disabled={ro} data-testid="edit-action" onChange={(e) => setAct((x) => { x.actionCode = (e.target.value || null) as ActionCode | null; }, 'action')}><option value="">Not classified</option>{ACTION_CODES.map((c) => <option key={c} value={c}>{ACTION_LABEL[c]}</option>)}</select></Field>
+            </Field>)}
+            {P('action', 'Action', <Field label="Action"><select value={a?.actionCode ?? ''} disabled={ro} data-testid="edit-action" onChange={(e) => setAct((x) => { x.actionCode = (e.target.value || null) as ActionCode | null; }, 'action')}><option value="">Not classified</option>{ACTION_CODES.map((c) => <option key={c} value={c}>{ACTION_LABEL[c]}</option>)}</select></Field>)}
             <h4>What moves and how it changes</h4>
             {txt('workItem', 'Work item', 'e.g. Application')}
             <div className="row2">{txt('inputState', 'Input state', 'e.g. submitted')}{txt('outputState', 'Output state', 'e.g. ready for placement')}</div>
             {txt('result', 'Result produced', 'e.g. Ready for placement')}
             {txt('conditions', 'Applies when')}{txt('exceptions', 'Exceptions')}
-            <Field label="Notes on this connection"><textarea rows={2} value={edge.description} disabled={ro} onChange={(e) => updateEdge(edge.id, { description: e.target.value }, 'description')} /></Field>
+            {P('description', 'Description', <Field label="Notes on this connection"><textarea rows={2} value={edge.description} disabled={ro} onChange={(e) => updateEdge(edge.id, { description: e.target.value }, 'description')} /></Field>)}
             <h4>Timing</h4>
-            {a ? <TimingEditor a={a} onChange={setAct} disabled={ro} /> : <button disabled={ro} onClick={() => setAct(() => {}, 'create')}>Record an activity on this link</button>}
+            {a ? <TimingEditor a={a} item={edge.id} onChange={setAct} disabled={ro} /> : <button disabled={ro} onClick={() => setAct(() => {}, 'create')}>Record an activity on this link</button>}
             {!ro && <div className="lens-danger"><button className="danger" data-testid="delete-item" onClick={() => deleteItem({ type: 'edge', id: edge.id })}>Delete connection</button></div>}
           </div>)}
         </details>
@@ -166,16 +175,17 @@ function NodePanel({ model, id }: { model: Model; id: string }) {
     <div className="lens" data-testid="node-panel">
       <div className="lens-top"><span className="lens-type"><b aria-hidden="true">{KIND_ICON[n.kind]}</b> {NODE_KIND_LABEL[n.kind]}</span>{n.scope !== 'internal' && <span className="chip scope">{n.scope.toUpperCase()}</span>}</div>
       <h2>{n.label}</h2>
-      <p className="lens-description">{n.role}{n.role && n.description ? ' · ' : ''}{n.description}</p>
-      <p className="micro">{SCOPE_LABEL[n.scope]}{model.startNodeId === id ? ' · Start of the workflow' : ''}</p>
+      <BasisSummary id={id} />
+      <p className="lens-description">{n.role && <Pick item={id} k="role" label="Role" inline>{n.role}</Pick>}{n.role && n.description ? ' · ' : ''}{n.description && <Pick item={id} k="description" label="Description" inline>{n.description}</Pick>}</p>
+      <p className="micro"><Pick item={id} k="scope" label="Scope" inline>{SCOPE_LABEL[n.scope]}</Pick>{model.startNodeId === id ? ' · Start of the workflow' : ''}</p>
       <h4>Connections</h4>
       <ul className="plainlist">{edges.map((e) => <li key={e.id}><button className="rowbtn" onClick={() => select({ type: 'edge', id: e.id })}><span>{e.label}</span><em>{EDGE_TYPE_LABEL[e.type]} · {e.from === id ? 'out' : 'in'}</em></button></li>)}{!edges.length && <li className="micro">Not connected yet.</li>}</ul>
       <h4>Internal activities</h4>
-      <ul className="plainlist">{internal.map((a) => <li key={a.id}><button className="rowbtn" onClick={() => select({ type: 'activity', id: a.id })}><span>{a.label}</span><em>{fmtMinutes(a.activeMinutes.value)} active</em></button></li>)}{!internal.length && <li className="micro">None recorded.</li>}</ul>
+      {(() => { const list = <ul className="plainlist">{internal.map((a) => <li key={a.id}><button className="rowbtn" onClick={() => select({ type: 'activity', id: a.id })}><span>{a.label}</span><em>{fmtMinutes(a.activeMinutes.value)} active</em></button></li>)}{!internal.length && <li className="micro">None recorded.</li>}</ul>; return internal.length ? <Pick item={id} k="internal" label="Internal activities">{list}</Pick> : list; })()}
       {!ro && <div className="btnrow"><button onClick={() => addInternalActivity(id)}>+ Internal activity</button><button onClick={() => { setState({ linkFrom: id, inspectorOpen: false }); toast('Choose the destination node on the map.'); }}>+ Connect from here</button></div>}
       <div className="lens-disclosure-list">
         <details className="lens-disclosure" open><summary><span className="disclosure-icon evidence">✎</span><span>Evidence<small>{notes.length} attached</small></span><span className="disclosure-chevron">⌄</span></summary>
-          <div className="lens-pane"><QuickCapture targetId={id} compact />{notes.map((x) => <NoteCard key={x.id} note={x} showTarget={false} />)}</div>
+          <div className="lens-pane"><QuickCapture targetId={id} compact />{notes.map((x) => <Pick key={x.id} item={id} k={`note:${x.id}`} label="this note"><NoteCard note={x} showTarget={false} /></Pick>)}</div>
         </details>
         <details className="lens-disclosure" data-testid="disc-edit" {...edit}><summary><span className="disclosure-icon edit">⚙</span><span>Edit<small>{ro ? 'Read only' : 'Name, type and scope'}</small></span><span className="disclosure-chevron">⌄</span></summary>
           {edit.open && (<div className="lens-pane conn-editbody">
@@ -204,19 +214,20 @@ function ActivityPanel({ model, id }: { model: Model; id: string }) {
     <div className="lens" data-testid="activity-panel">
       <div className="lens-top"><span className="lens-type">◈ Internal activity</span><BasisChip basis={a.activeMinutes.value === null ? 'unknown' : a.activeMinutes.basis} /></div>
       <h2>{a.label}</h2>
-      <p className="lens-description">Work done at <button className="linkbtn" onClick={() => owner && select({ type: 'node', id: owner.id })}>{owner?.label ?? 'an unknown node'}</button> by {performer?.label ?? 'a performer who is not identified'}. No handoff is involved.</p>
-      <div className="lens-inline-metrics"><span><b>{fmtMinutes(a.activeMinutes.value)}</b> active</span><span><b>{fmtMinutes(a.waitMinutes.value)}</b> waiting</span></div>
+      <BasisSummary id={id} />
+      <p className="lens-description">Work done at <button className="linkbtn" onClick={() => owner && select({ type: 'node', id: owner.id })}>{owner?.label ?? 'an unknown node'}</button> by <Pick item={id} k="performer" label="Who does it" inline>{performer?.label ?? 'a performer who is not identified'}</Pick>. No handoff is involved.</p>
+      <div className="lens-inline-metrics"><Pick item={id} k="active" label="Active time" inline><span><b>{fmtMinutes(a.activeMinutes.value)}</b> active</span></Pick><Pick item={id} k="waiting" label="Waiting time" inline><span><b>{fmtMinutes(a.waitMinutes.value)}</b> waiting</span></Pick></div>
       <div className="conn-editbody">
         <Field label="Label"><input value={a.label} disabled={ro} onChange={(e) => updateActivity(id, (x) => { x.label = e.target.value || 'Activity'; }, 'label')} /></Field>
         <div className="row2">
           <Field label="Performer"><select value={a.performerId ?? ''} disabled={ro} onChange={(e) => updateActivity(id, (x) => { x.performerId = e.target.value || null; })}><option value="">Unknown</option>{model.nodes.map((n) => <option key={n.id} value={n.id}>{n.label}</option>)}</select></Field>
-          <Field label="Action"><select value={a.actionCode ?? ''} disabled={ro} onChange={(e) => updateActivity(id, (x) => { x.actionCode = (e.target.value || null) as ActionCode | null; })}><option value="">Not classified</option>{ACTION_CODES.map((c) => <option key={c} value={c}>{ACTION_LABEL[c]}</option>)}</select></Field>
+          <Pick item={id} k="action" label="Action"><Field label="Action"><select value={a.actionCode ?? ''} disabled={ro} onChange={(e) => updateActivity(id, (x) => { x.actionCode = (e.target.value || null) as ActionCode | null; })}><option value="">Not classified</option>{ACTION_CODES.map((c) => <option key={c} value={c}>{ACTION_LABEL[c]}</option>)}</select></Field></Pick>
         </div>
-        <TimingEditor a={a} disabled={ro} onChange={(fn, field) => updateActivity(id, fn, field)} />
+        <TimingEditor a={a} item={id} disabled={ro} onChange={(fn, field) => updateActivity(id, fn, field)} />
         {!ro && <div className="lens-danger"><button className="danger" onClick={() => deleteItem({ type: 'activity', id })}>Delete activity</button></div>}
       </div>
       <h4>Evidence</h4>
-      <QuickCapture targetId={id} compact />{notes.map((x) => <NoteCard key={x.id} note={x} showTarget={false} />)}
+      <QuickCapture targetId={id} compact />{notes.map((x) => <Pick key={x.id} item={id} k={`note:${x.id}`} label="this note"><NoteCard note={x} showTarget={false} /></Pick>)}
     </div>
   );
 }
@@ -253,12 +264,16 @@ export function Inspector() {
   const sel = selection && (selection.type === 'node' ? model.nodes.some((n) => n.id === selection.id) : selection.type === 'edge' ? model.edges.some((e) => e.id === selection.id) : model.activities.some((a) => a.id === selection.id)) ? selection : null;
   return (
     <aside className={`right${open ? ' open' : ''}`} ref={ref} tabIndex={-1} aria-label="Details" data-testid="inspector" onKeyDown={(e) => { if (e.key === 'Escape' && open) setState({ inspectorOpen: false }); }}>
+      <div className="right-top">
       <div className="righthead">
         <b>{sel ? (sel.type === 'edge' ? 'Connection' : sel.type === 'node' ? 'Node' : 'Activity') : mode === 'scenario' ? 'Scenario' : 'Overview'}</b>
         <span>
           {sel && <button className="linkbtn" onClick={() => select(null)} data-testid="clear-selection">Clear</button>}
           <button className="iconbtn drawer-close" aria-label="Close details and return to the map" data-testid="drawer-close" onClick={() => setState({ inspectorOpen: false })}>✕</button>
         </span>
+      </div>
+      {/* The insight's summary stays in view with the header while the panel scrolls. */}
+      <InsightDetailPicker itemId={sel?.id ?? null} />
       </div>
       <div className="inspector">
         {sel?.type === 'edge' ? <EdgeLens model={model} edge={model.edges.find((e) => e.id === sel.id)!} />

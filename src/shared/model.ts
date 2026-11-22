@@ -52,6 +52,8 @@ export const nodeSchema = z.object({
   description: z.string().max(4000).default(''),
   scope: z.enum(SCOPES).default('internal'),
   parentId: idSchema.nullable().default(null),
+  // Notes this item was built from (archive proposals). Notes attached to it later are found by their target.
+  basis: z.array(idSchema).max(200).optional(),
 });
 export type WNode = z.infer<typeof nodeSchema>;
 
@@ -70,6 +72,7 @@ export const edgeSchema = z.object({
   conditions: z.string().max(1000).default(''),
   exceptions: z.string().max(1000).default(''),
   description: z.string().max(4000).default(''),
+  basis: z.array(idSchema).max(200).optional(),
 });
 export type WEdge = z.infer<typeof edgeSchema>;
 
@@ -85,6 +88,7 @@ export const activitySchema = z.object({
   activeMinutes: quantitySchema,
   waitMinutes: quantitySchema,
   occurrencesPerCase: quantitySchema,
+  basis: z.array(idSchema).max(200).optional(),
 });
 export type WActivity = z.infer<typeof activitySchema>;
 
@@ -247,6 +251,7 @@ export function validateModel(input: unknown): { model?: Model; issues: Validati
   return issues.length ? { issues } : { model: m, issues: [] };
 }
 
+// Node IDs store canvas coordinates. Connection IDs store manual label offsets in the connection's frame.
 export type Layout = Record<string, { x: number; y: number }>;
 export const layoutSchema = z.record(idSchema, z.object({ x: finite, y: finite }));
 

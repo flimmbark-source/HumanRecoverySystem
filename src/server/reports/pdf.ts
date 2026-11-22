@@ -1,34 +1,13 @@
 // Print-ready PDFs: the leadership decision brief and the current-state map.
 import PDFDocument from 'pdfkit';
-import { existsSync } from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import type { Brief } from './brief';
+import { F, fonts, plain } from './fonts';
 import { EDGE_TYPES, EDGE_TYPE_LABEL, activityForEdge, fmtQty } from '../../shared/model';
 import { edgeGeom, nodeW, NODE_H, placeLabels, pos, shortLabel, wrapNodeLabel } from '../../shared/layout';
 
 const INK = '#20352f', MUTED = '#6b7a72', LINE = '#d9e0d8', GREEN = '#225a4b', AMBER = '#8a6a2f';
 const TYPE_COLOR: Record<string, string> = { flow: '#567fa7', info: '#4b9f90', dependency: '#b5914d', authority: '#967da8', association: '#8d979e' };
 const DASH: Record<string, number[] | null> = { flow: null, info: [8, 6], dependency: [2, 5], authority: [11, 3, 2, 3], association: [5, 5] };
-
-// A bundled Unicode font is registered, so text in any Latin, Greek or Cyrillic script
-// (and symbols such as the minus sign and arrows) renders correctly. Without the files the built-in fonts are used.
-const here = path.dirname(fileURLToPath(import.meta.url));
-const fontDir = [path.resolve('assets/fonts'), path.resolve(here, '../../assets/fonts'), path.resolve(here, '../../../assets/fonts')].find((d) => existsSync(path.join(d, 'DejaVuSans.ttf')));
-// pdfkit caches its built-in Helvetica under that name, so the bundled font gets names of its own.
-const F = fontDir ? { r: 'Weave', b: 'Weave-Bold', i: 'Weave-Oblique' } : { r: 'Helvetica', b: 'Helvetica-Bold', i: 'Helvetica-Oblique' };
-function fonts(doc: PDFKit.PDFDocument) {
-  if (!fontDir) return;
-  const oblique = existsSync(path.join(fontDir, 'DejaVuSans-Oblique.ttf')) ? 'DejaVuSans-Oblique.ttf' : 'DejaVuSans.ttf';
-  doc.registerFont('Weave', path.join(fontDir, 'DejaVuSans.ttf'));
-  doc.registerFont('Weave-Bold', path.join(fontDir, 'DejaVuSans-Bold.ttf'));
-  doc.registerFont('Weave-Oblique', path.join(fontDir, oblique));
-}
-/** With the built-in fonts only, characters outside WinAnsi would print as garbage; map the ones this app emits. */
-function plain<T>(value: T): T {
-  if (fontDir) return value;
-  return JSON.parse(JSON.stringify(value).replace(/\u2212|−/g, '-').replace(/→/g, '->').replace(/≥/g, '>=').replace(/≤/g, '<=')) as T;
-}
 
 function collect(doc: PDFKit.PDFDocument): Promise<Buffer> {
   return new Promise((resolve, reject) => {
@@ -91,18 +70,17 @@ export function briefPdf(input: Brief): Promise<Buffer> {
   if (!b.recommendations.length) para('No opportunities have been recorded yet.', MUTED);
   b.recommendations.forEach((r, i) => {
     room(90);
-    doc.moveDown(0.6).font(F.b).fontSize(8).fillColor(r.isHypothesis ? AMBER : GREEN).text(`${i + 1}. ${r.heading.toUpperCase()} · ${r.evidenceLevel.toUpperCase()}`, { characterSpacing: 0.6 });
+    doc.moveDown(0.6).font(F.b).fontSize(8).fillColor(r.isHypothesis || r.option?.withinPilotScope === false ? AMBER : GREEN).text(`${i + 1}. ${r.heading.toUpperCase()} · ${r.evidenceLevel.toUpperCase()}`, { characterSpacing: 0.6 });
     doc.moveDown(0.15).font(F.b).fontSize(13).fillColor(INK).text(r.title, { width: W }); doc.moveDown(0.3);
     if (r.stale) para('The scenario behind this item has changed since it was written. Figures below reflect the current scenario and the text may need review.', AMBER);
-    if (r.isHypothesis && r.option) para('Evidence is incomplete, so this is presented as a hypothesis to test, not a finding.', AMBER);
+    if (r.isHypothesis) para('This is a hypothesis to test.', AMBER);
     if (r.closeReason) field('Why this was closed', r.closeReason);
     label('What was observed');
     if (!r.observations.length) para('No observations are linked to this item yet.', MUTED);
     for (const o of r.observations) bullet(`${o.relation === 'supports' ? 'Supports' : o.relation === 'contradicts' ? 'Contradicts' : 'Related'} · ${o.kind}, ${o.certainty} · ${o.source}${o.text ? ` — “${o.text}”` : ' — excerpt not approved for export'}`, o.relation === 'contradicts' ? AMBER : INK);
     doc.moveDown(0.3);
     label('Interpretation');
-    for (const ins of r.insights) para(`${ins.title}${ins.body && ins.body.trim() !== ins.title ? `: ${ins.body}` : ''}`);
-    para(r.interpretation || (r.insights.length ? '' : 'No interpretation recorded.'), r.interpretation ? INK : MUTED);
+    para(r.interpretation || 'No interpretation prepared for this brief.', r.interpretation ? INK : MUTED);
     label('Evidence gaps and uncertainty');
     if (r.gaps.length) r.gaps.forEach((g) => bullet(g, AMBER)); else para('None recorded.', MUTED);
     doc.moveDown(0.3);
@@ -113,7 +91,7 @@ export function briefPdf(input: Brief): Promise<Buffer> {
       field('Benefits', r.option.benefits); field('Downsides and human costs', r.option.downsides); field('Added or shifted work', r.option.shiftedWork);
       field('Implementation effort', r.option.effort); field('Costs', r.option.costs); field('Tradeoffs', r.option.tradeoffs); field('Unknowns', r.option.unknowns); field('What to test', r.option.test);
     }
-    if (r.alternatives.length) { label('Other options compared'); table(['Option', 'Benefits', 'Downsides', 'Confidence'], r.alternatives.map((a) => [`${a.title} (${a.kindLabel})`, a.benefits, a.downsides, a.confidence]), [0.26, 0.3, 0.28, 0.16]); }
+    if (r.alternatives.length) { label('Other options compared'); table(['Option', 'Benefits', 'Downsides', 'Confidence'], r.alternatives.map((a) => [`${a.title} (${a.kindLabel})${a.withinPilotScope ? '' : ' · Exploratory option outside pilot scope'}`, a.benefits, a.downsides, a.confidence]), [0.26, 0.3, 0.28, 0.16]); }
     const c = r.comparison;
     if (c) {
       h2(`Modeled comparison: ${c.scenarioName}`);
@@ -172,6 +150,9 @@ export function mapPdf(input: Brief): Promise<Buffer> {
     doc.stroke(); doc.undash();
     if (e.directed) { const a = Math.atan2(g.by - g.cy, g.bx - g.cx); doc.moveTo(g.bx, g.by).lineTo(g.bx - 10 * Math.cos(a - 0.45), g.by - 10 * Math.sin(a - 0.45)).moveTo(g.bx, g.by).lineTo(g.bx - 10 * Math.cos(a + 0.45), g.by - 10 * Math.sin(a + 0.45)).lineWidth(2).strokeColor(color).stroke(); }
     const l = labels.get(e.id); if (!l) continue;
+    if (Math.hypot(l.x - g.mx, l.y - g.my) > 125) {
+      doc.moveTo(g.mx, g.my).lineTo(l.x, l.y).lineWidth(1).strokeColor(color).dash(2, { space: 4 }).stroke().undash();
+    }
     doc.roundedRect(l.x - l.w / 2, l.y - 21, l.w, 33, 7).lineWidth(1).fillAndStroke('#ffffff', color);
     doc.font(F.b).fontSize(10).fillColor(INK).text(shortLabel(e.label), l.x - l.w / 2, l.y - 16, { width: l.w, align: 'center', lineBreak: false });
     const a = activityForEdge(m, e.id);

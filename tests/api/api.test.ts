@@ -1,5 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { beforeAll, describe, expect, it } from 'vitest';
+import { app } from '../../src/server/app';
+import { createSession } from '../../src/server/auth';
 import { pool } from '../../src/server/db';
 import { runOnce } from '../../src/server/research';
 import { compare } from '../../src/shared/impact';
@@ -25,6 +27,15 @@ describe('start, persistence and conflicts', () => {
     const tries = [];
     for (let i = 0; i < 9; i++) tries.push((await c.post('/auth/login', { email: 'nobody@weave.test', password: 'wrong-password' })).status);
     expect(tries).toEqual([401, 401, 401, 401, 401, 401, 401, 401, 429]);
+  });
+
+  it('accepts the session token as a bearer token, as the app on a phone sends it', async () => {
+    const token = await createSession(ok(await owner.get('/me')).user.id);
+    const me = (authorization: string) => app.request('/api/me', { headers: { authorization } });
+    expect((await me(`Bearer ${token}`)).status).toBe(200);
+    expect((await me('Bearer not-a-session')).status).toBe(401);
+    expect((await app.request('/api/auth/logout', { method: 'POST', headers: { authorization: `Bearer ${token}` } })).status).toBe(200);
+    expect((await me(`Bearer ${token}`)).status).toBe(401);
   });
 
   it('creates an empty project next to the synthetic one and keeps them independent', async () => {
@@ -235,15 +246,20 @@ describe('fieldwork, synthesis and decision', () => {
     ok(await editor.post(`/projects/${demo}/c/links`, { fromType: 'note', fromId: 't2', toType: 'insight', toId: ins.id, relation: 'supports' }));
     const secret = ok(await editor.post(`/projects/${demo}/c/notes`, { text: 'UNAPPROVED-EXCERPT about a named colleague', kind: 'observation' })).doc;
     ok(await editor.post(`/projects/${demo}/c/links`, { fromType: 'note', fromId: secret.id, toType: 'insight', toId: ins.id, relation: 'contradicts' }));
-    const opp = ok(await editor.post(`/projects/${demo}/c/opportunities`, { title: 'Protect matching conversations', insightIds: [ins.id], interpretation: 'Interruptions, not skill, explain missed details.', preserve: 'The personal matching conversation.', internalNotes: 'INTERNAL-ONLY remark', validationPlan: 'Two-week trial.' })).doc;
+    const opp = ok(await editor.post(`/projects/${demo}/c/opportunities`, { title: ins.title, insightIds: [ins.id], preserve: 'The personal matching conversation.', internalNotes: 'INTERNAL-ONLY remark', validationPlan: 'Two-week trial.' })).doc;
     const opt = ok(await editor.post(`/projects/${demo}/c/options`, { opportunityId: opp.id, kind: 'process_change', title: 'Protected matching hour', benefits: 'Fewer missed details', downsides: 'Phone cover needed', smallestReversible: true })).doc;
     ok(await editor.patch(`/projects/${demo}/c/opportunities/${opp.id}`, { recommendedOptionId: opt.id }));
+    const draftBrief = ok(await editor.get(`/projects/${demo}/export/brief.json`));
+    expect(draftBrief.recommendations.find((r: any) => r.id === opp.id)).toMatchObject({ title: expect.stringMatching(/^Opportunity \d+$/), interpretation: '' });
+    ok(await editor.patch(`/projects/${demo}/c/opportunities/${opp.id}`, { reportTitle: 'Protect matching conversations', interpretation: 'Interruptions can make matching harder.' }));
     const brief = ok(await editor.get(`/projects/${demo}/export/brief.json`));
     const rec = brief.recommendations.find((r: any) => r.id === opp.id);
     expect(rec.heading).toBe('Hypothesis to test'); // one source and an unreconciled contradiction
+    expect(rec.interpretation).toBe('Interruptions can make matching harder.');
     expect(rec.observations.map((o: any) => [o.relation, o.text, o.source])).toEqual([['supports', 'A coordinator described checking for available placements manually.', 'Illustrative interview 02'], ['contradicts', null, 'No recorded source']]);
     const text = JSON.stringify(brief);
     expect(text).not.toContain('UNAPPROVED-EXCERPT'); expect(text).not.toContain('INTERNAL-ONLY'); expect(text).not.toContain('participantRole');
+    expect(text).not.toContain(ins.title); expect(text).not.toContain(ins.body);
     const pdf = await editor.get(`/projects/${demo}/export/brief.pdf`);
     expect(Buffer.from(await pdf.res.arrayBuffer()).subarray(0, 5).toString()).toBe('%PDF-');
     const map = await editor.get(`/projects/${demo}/export/map.pdf`);
@@ -252,6 +268,40 @@ describe('fieldwork, synthesis and decision', () => {
     expect(Buffer.from(await xlsx.res.arrayBuffer()).subarray(0, 2).toString()).toBe('PK');
     const csv = await (await editor.get(`/projects/${demo}/export/opportunities.csv`)).res.text();
     expect(csv).toContain('Protect matching conversations'); expect(csv).not.toContain('INTERNAL-ONLY');
+    expect(csv).toContain(rec.interpretation); expect(csv).not.toContain(ins.title); expect(csv).not.toContain(ins.body);
+    const backup = JSON.parse(await (await editor.get(`/projects/${demo}/export/workspace.json`)).res.text());
+    expect(backup.insights.find((i: any) => i.id === ins.id).body).toBe(ins.body);
+    expect(backup.opportunities.find((o: any) => o.id === opp.id).reportTitle).toBe(rec.title);
+  });
+
+  it('keeps inferred sources visible and requires a researcher decision before recommending an in-scope option', async () => {
+    const path = `/projects/${demo}`;
+    const create = async (collection: string, data: object) => ok(await editor.post(`${path}/c/${collection}`, data)).doc;
+    const first = await create('sources', { anonId: 'Review source 01' });
+    const second = await create('sources', { anonId: 'Review source 02' });
+    const noteIds: string[] = [];
+    for (const source of [first, second]) {
+      noteIds.push((await create('notes', { sourceId: source.id, text: 'Capacity checks may interrupt matching.', certainty: 'inferred' })).id);
+    }
+    const opp = await create('opportunities', { title: 'Internal opportunity', reportTitle: 'Matching options', noteIds });
+    const option = await create('options', { title: 'Reorganize departments', opportunityId: opp.id, kind: 'process_change', withinPilotScope: false });
+    const updateDecision = async (data: object) => ok(await editor.patch(`${path}/c/opportunities/${opp.id}`, data));
+    const updateOption = async (withinPilotScope: boolean) => ok(await editor.patch(`${path}/c/options/${option.id}`, { withinPilotScope }));
+    const report = async () => ok(await editor.get(`${path}/export/brief.json`)).recommendations.find((r: any) => r.id === opp.id);
+    await updateDecision({ recommendedOptionId: option.id, decisionState: 'recommended' });
+    expect(await report()).toMatchObject({ heading: 'Exploratory option outside pilot scope', sourceCount: 2, evidenceLevel: 'Thin evidence', option: { withinPilotScope: false } });
+    const csv = await (await editor.get(`${path}/export/opportunities.csv`)).res.text();
+    expect(csv).toContain('Exploratory option outside pilot scope');
+
+    await updateOption(true);
+    expect(await report()).toMatchObject({ heading: 'Hypothesis to test', sourceCount: 2, evidenceLevel: 'Thin evidence' });
+    await updateDecision({ decisionState: 'exploring' });
+    for (const id of noteIds) ok(await editor.patch(`${path}/c/notes/${id}`, { certainty: 'reported' }));
+    expect(await report()).toMatchObject({ heading: 'Option under review', evidenceLevel: 'Multiple supporting sources' });
+    await updateDecision({ decisionState: 'recommended' });
+    expect((await report()).heading).toBe('Recommendation');
+    await updateOption(false);
+    expect((await report()).heading).toBe('Exploratory option outside pilot scope');
   });
 });
 
@@ -392,5 +442,26 @@ describe('research jobs and review inbox', () => {
     expect(again.branches.filter((b: any) => b.kind === 'scenario').map((b: any) => [b.name, b.baseRevisionId])).toEqual(bundle.branches.filter((b: any) => b.kind === 'scenario').map((b: any) => [b.name, b.baseRevisionId]));
     expect(again.candidates.filter((c: any) => c.status === 'accepted').length).toBeGreaterThanOrEqual(3);
     expect(again.notes.find((n: any) => n.id === 't1').targetId).toBe('e2');
+  });
+});
+
+describe('the worked example', () => {
+  it('creates a whole study from the template: brief, findings to review, a draft to adopt, and a backup that imports again', async () => {
+    const id = ok(await editor.post('/projects', { name: 'Worked example copy', template: 'example' })).id;
+    const ev = ok(await editor.get(`/projects/${id}/evidence`));
+    expect([ev.sources, ev.notes, ev.imports, ev.insights, ev.links, ev.opportunities, ev.options].map((x: unknown[]) => x.length)).toEqual([11, 45, 3, 5, 25, 4, 7]);
+    const brief = ok(await editor.get(`/projects/${id}/export/brief.json`));
+    expect(brief).toMatchObject({ projectName: 'Worked example copy', synthetic: true });
+    expect(brief.recommendations[0]).toMatchObject({ heading: 'Recommendation', title: 'Allocate straightforward cases the next working day' });
+    expect(brief.recommendations[0].comparison.lines[0].change).toBe('−15 min');
+    const research = ok(await editor.get(`/projects/${id}/research`));
+    expect(research.candidates.filter((c: any) => c.status === 'pending' && !c.stale && !c.refIssues.length)).toHaveLength(3);
+
+    ok(await editor.post(`/projects/${id}/branches/sc-notes/adopt`, {}));
+    expect((await head(editor, id)).revision.model.edges.map((e: any) => e.id)).toContain('e-phone');
+
+    const backup = JSON.parse(await (await editor.get(`/projects/${id}/export/workspace.json`)).res.text());
+    expect(validateBundle(backup).issues).toEqual([]);
+    ok(await editor.post('/import', { data: backup, name: 'Worked example, imported' }));
   });
 });

@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { api, freshProject, login, open, openEdit, saved, selectEdge, sentence } from './helpers';
+import { api, freshProject, login, open, openEdit, saved, selectEdge, sentence, chooseBranch } from './helpers';
 
 const row = (page: Page, key: string, col: 'base' | 'scenario' | 'delta') => page.locator(`[data-testid=impact-table] [data-row="${key}"] [data-col="${col}"]`);
 async function branch(page: Page, name: string) {
@@ -152,10 +152,10 @@ test.describe('Scenario and evidence isolation, with the calculation fixtures', 
     // evidence: t1 is historical in B, attached in the baseline and in A
     await page.getByTestId('tab-evidence').click();
     await expect(page.locator('[data-testid=scenario-evidence] [data-note="t1"] [data-anchor-state="historical"]')).toContainText('still attached on Baseline');
-    await page.getByTestId('branch-select').selectOption({ label: 'Scenario: A faster matching' });
+    await chooseBranch(page, 'Scenario: A faster matching');
     await page.getByTestId('nav-notes').click();
     await expect(page.locator('[data-note="t1"] [data-anchor-state="attached"]')).toContainText('Triage application');
-    await page.getByTestId('branch-select').selectOption('baseline');
+    await chooseBranch(page, 'Baseline');
     await expect(page.locator('[data-note="t1"] [data-anchor-state="attached"]')).toContainText('Triage application');
     expect((await api(page, `/projects/${id}/evidence`)).notes.find((n: any) => n.id === 't1').targetId).toBe('e2');
 
@@ -165,7 +165,7 @@ test.describe('Scenario and evidence isolation, with the calculation fixtures', 
     const after = (await api(page, `/projects/${id}`)).branches;
     expect(after.find((b: any) => b.name === 'A faster matching').baseRevisionId).toBe('rev-base-1');
     expect(after.find((b: any) => b.name === 'B skip triage').baseRevisionId).toBe(aHead.headRevisionId);
-    await page.getByTestId('branch-select').selectOption({ label: 'Scenario: A faster matching' });
+    await chooseBranch(page, 'Scenario: A faster matching');
     await page.getByTestId('mode-scenario').click(); await page.getByTestId('tab-impact').click();
     await expect(row(page, 'percase', 'base')).toHaveText('63 min'); // still the pinned baseline, not the edited one
     await expect(row(page, 'modeled', 'delta')).toHaveText('−16 h');
@@ -174,6 +174,7 @@ test.describe('Scenario and evidence isolation, with the calculation fixtures', 
     await page.getByTestId('nav-decide').click();
     await page.getByTestId('opp-new').fill('Faster matching'); await page.getByTestId('opp-add').click();
     await page.locator('[data-add-option="process_change"]').click();
+    await expect(page.locator('[data-option][data-kind="process_change"]')).toBeVisible();
     const opt = (await api(page, `/projects/${id}/evidence`)).options[0];
     await page.request.patch(`/api/projects/${id}/c/options/${opt.id}`, { data: { scenarioBranchId: aHead.id } });
     await page.reload(); await page.getByTestId('nav-decide').click();
@@ -186,7 +187,7 @@ test.describe('Scenario and evidence isolation, with the calculation fixtures', 
     await expect(page.getByTestId('rec-human')).toContainText('Count follow-up requests for four weeks');
     // editing the scenario afterwards marks the recommendation stale
     await page.getByTestId('nav-map').click();
-    await page.getByTestId('branch-select').selectOption({ label: 'Scenario: A faster matching' });
+    await chooseBranch(page, 'Scenario: A faster matching');
     await setActive(page, 'e3', '12');
     await page.getByTestId('nav-decide').click();
     await expect(page.getByTestId('stale-banner')).toBeVisible();
@@ -213,7 +214,7 @@ test.describe('Scenario and evidence isolation, with the calculation fixtures', 
     await expect(page.getByTestId('impact-incomplete')).toContainText('no headline change is stated');
     await expect(page.getByTestId('impact-missing')).toContainText('baseline: Find a placement');
     // sourced zero on the baseline
-    await page.getByTestId('branch-select').selectOption('baseline');
+    await chooseBranch(page, 'Baseline');
     await page.getByTestId('mode-structure').click();
     await selectEdge(page, 'e3'); await openEdit(page);
     await page.getByTestId('edit-active').fill('0');
@@ -449,11 +450,26 @@ test.describe('Mobile', () => {
     // same map, same view, same selection; the map is usable again
     expect(await page.getByTestId('graph').getAttribute('viewBox')).toBe(viewBefore);
     await expect(page.locator('[data-edge="e3"]')).toHaveClass(/selected/);
-    await expect(page.locator('[data-pin-for="e3"] text')).toHaveText('2');
+    await expect(page.locator('[data-pin-for="e3"]')).toHaveAttribute('data-count', '2');
     await page.locator('[data-label-for="e4"]').tap();
     await expect(page.getByTestId('lens-title')).toHaveText('Confirm and notify');
     await page.getByTestId('drawer-close').tap();
     await page.getByTestId('fab-note').tap();
     await expect(page.getByTestId('capture-target')).toHaveValue('e4'); // the quick note defaults to the selected item
+  });
+
+  test('at 390 px: the menu at the top left switches map version and returns to all projects', async ({ page }) => {
+    await freshProject(page, 'Phone menu');
+    await page.getByTestId('branch-select').tap();
+    const menu = page.getByTestId('project-menu');
+    await expect(menu.getByRole('menuitemradio', { name: 'Baseline' })).toHaveAttribute('aria-checked', 'true');
+    const box = (await menu.boundingBox())!;
+    expect(box.x).toBeGreaterThanOrEqual(0); expect(box.x + box.width).toBeLessThanOrEqual(390);
+    await page.getByTestId('graph').tap({ position: { x: 200, y: 400 } }); // tapping elsewhere closes it
+    await expect(menu).toHaveCount(0);
+    await page.getByTestId('branch-select').tap();
+    await page.getByTestId('menu-projects').tap();
+    await expect(page.getByTestId('projects')).toBeVisible();
+    await expect(page.locator('[data-project="Phone menu"]')).toBeVisible();
   });
 });

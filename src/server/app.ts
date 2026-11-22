@@ -5,6 +5,7 @@ import { HttpError, createUser, endSession, projectRole, requireUser, startSessi
 import { config } from './config';
 import { one, pool, q, tx } from './db';
 import { blankBundle, demoBundle } from './demo';
+import { exampleBundle } from './example';
 import { providerStatus } from './providers';
 import { buildBrief } from './reports/brief';
 import { briefPdf, mapPdf } from './reports/pdf';
@@ -13,7 +14,12 @@ import { acceptCandidate, cancelRun, enqueueRun, importCandidates, listResearch,
 import { audit, createBranch, createProject, deleteDoc, exportBundle, getBranch, getBranches, getRevision, isCollection, listCollection, listRevisions, saveModel, upsertDoc, writeBundle, COLLECTIONS, type CollectionName } from './store';
 import { parseImport } from '../shared/legacy';
 import { layoutSchema } from '../shared/model';
-import { projectMetaSchema } from '../shared/workspace';
+import { CERTAINTIES, projectMetaSchema, type Note, type Source } from '../shared/workspace';
+import { IMPORT_KINDS, mapItems, splitOffline } from '../shared/fieldnotes';
+import { FILE_MIMES, proposalsFromOutput } from '../shared/fieldnotes-ai';
+import { proposeMapChanges, splitFieldNotes, splitFileFieldNotes } from './providers/anthropic';
+import { checkChanges, type ProposalNote, type RawChange } from '../shared/mapchanges';
+import type { Model } from '../shared/model';
 
 export const app = new Hono<Env>();
 const api = new Hono<Env>();
@@ -72,14 +78,14 @@ api.get('/projects', async (c) => {
   return c.json({ projects: rows });
 });
 
-const newProject = projectMetaSchema.extend({ template: z.enum(['blank', 'demo']).default('blank'), outcomeLabel: z.string().max(140).default('') });
+const newProject = projectMetaSchema.extend({ template: z.enum(['blank', 'demo', 'example']).default('blank'), outcomeLabel: z.string().max(140).default('') });
 api.post('/projects', async (c) => {
   const user = c.get('user');
   const { template, outcomeLabel, ...meta } = await body(c, newProject);
   const id = await tx(async (db) => {
-    const bundle = template === 'demo' ? demoBundle() : blankBundle(meta, meta.startLabel, outcomeLabel);
-    if (template === 'demo' && meta.name.trim()) bundle.project.name = meta.name;
-    const pid = await createProject(db, user, bundle.project, { synthetic: template === 'demo' });
+    const bundle = template === 'demo' ? demoBundle() : template === 'example' ? exampleBundle() : blankBundle(meta, meta.startLabel, outcomeLabel);
+    if (template !== 'blank' && meta.name.trim()) bundle.project.name = meta.name;
+    const pid = await createProject(db, user, bundle.project, { synthetic: template !== 'blank' });
     await writeBundle(db, pid, user, bundle);
     await audit(db, pid, user, 'project.create', 'project', pid, { template });
     return pid;
@@ -185,7 +191,7 @@ api.post('/projects/:pid/branches/:bid/restore', async (c) => {
 });
 api.post('/projects/:pid/branches', async (c) => {
   await need(c, 'editor');
-  const b = await body(c, z.object({ name: z.string().min(1).max(200), hypothesis: z.string().max(4000).default(''), fromBranchId: z.string(), fromRevisionId: z.string().nullable().optional(), origin: z.object({ type: z.enum(['insight', 'opportunity', 'option', 'blank']), id: z.string().nullable() }).nullable().optional() }));
+  const b = await body(c, z.object({ name: z.string().min(1).max(200), hypothesis: z.string().max(4000).default(''), fromBranchId: z.string(), fromRevisionId: z.string().nullable().optional(), origin: z.object({ type: z.enum(['insight', 'opportunity', 'option', 'blank', 'archive']), id: z.string().nullable() }).nullable().optional() }));
   const branch = await tx((db) => createBranch(db, pid(c), c.get('user'), b));
   return c.json({ branch });
 });
@@ -209,6 +215,126 @@ api.delete('/projects/:pid/branches/:bid', async (c) => {
     await audit(db, pid(c), c.get('user'), 'scenario.delete', 'branch', br.id, { name: br.name });
   });
   return c.json({ ok: true });
+});
+
+// ---- field notes import -----------------------------------------------------------------------------
+// The client splits on the phone without a network; these routes split with Claude and save a reviewed import.
+const modelFor = async (c: any, branchId: string | undefined) => { const b = await getBranch(pool, pid(c), branchId || 'baseline'); return { branch: b, model: (await getRevision(pool, pid(c), b.headRevisionId)).model }; };
+api.post('/projects/:pid/fieldnotes/split', async (c) => {
+  await need(c, 'editor');
+  const b = await body(c, z.object({
+    text: z.string().trim().min(1).max(400_000).optional(), docType: z.enum(['notes', 'document']).default('notes'), branchId: z.string().max(64).optional(),
+    file: z.object({ name: z.string().max(300), mime: z.enum(FILE_MIMES), data: z.string().min(1) }).optional(),
+  }).refine((x) => !!x.text !== !!x.file, 'Send either text or a file.'));
+  const { model } = await modelFor(c, b.branchId);
+  const items = mapItems(model);
+  if (b.file) {
+    // Names in a PDF or picture cannot be replaced before it is read, so the project has to allow sending them.
+    const meta = (await one<{ meta: { aiFiles?: string } }>(pool, 'SELECT meta FROM projects WHERE id = $1', [pid(c)]))?.meta;
+    if (meta?.aiFiles !== 'on') throw new HttpError(403, 'Sending PDFs and images to Claude is off for this project. Turn it on in Project settings.');
+  }
+  if (config.provider === 'fixture') {
+    // The test splitter cannot read files: it pretends the file said one fixed line.
+    const text = b.text ?? `[Test transcript of ${b.file!.name}] The coordinator confirms capacity with each program by phone before a placement.`;
+    return c.json({ method: 'fixture', transcript: b.file ? text : undefined, proposals: splitOffline(text, model, b.docType).map((p) => ({ ...p, why: 'Test splitter. No AI was used.' })) });
+  }
+  const key = config.userKeys ? c.req.header('x-claude-key')?.trim() : undefined;
+  if (config.provider !== 'anthropic' && !key) throw new HttpError(409, config.userKeys ? 'Add your Claude API key in Project settings to split with Claude.' : 'Claude is not set up on this server.');
+  try {
+    if (b.file) {
+      const out = await splitFileFieldNotes({ ...b.file, items, docType: b.docType }, { apiKey: key });
+      return c.json({ method: 'claude', transcript: out.transcript, proposals: proposalsFromOutput(out.transcript, out, items) });
+    }
+    const out = await splitFieldNotes({ text: b.text!, items, docType: b.docType }, { apiKey: key });
+    return c.json({ method: 'claude', proposals: proposalsFromOutput(b.text!, out, items) });
+  } catch (e) { throw new HttpError(502, e instanceof Error ? e.message : 'Claude could not split these notes.'); }
+});
+// Map changes proposed from notes. The answer is only a proposal: the client applies the accepted ones to a draft.
+api.post('/projects/:pid/fieldnotes/propose-map', async (c) => {
+  await need(c, 'editor');
+  const b = await body(c, z.object({ noteIds: z.array(z.string().max(80)).min(1).max(400), branchId: z.string().max(64).optional() }));
+  const { model } = await modelFor(c, b.branchId);
+  const all = await listCollection<Note>(pool, pid(c), 'notes'), sources = await listCollection<Source>(pool, pid(c), 'sources');
+  const want = new Set(b.noteIds), notes = all.filter((n) => want.has(n.id));
+  if (!notes.length) throw new HttpError(422, 'None of those notes exist in this project.');
+  const label = (id: string | null) => (id ? model.nodes.find((x) => x.id === id)?.label ?? model.edges.find((x) => x.id === id)?.label ?? '' : '');
+  const input: ProposalNote[] = notes.map((n) => ({ id: n.id, kind: n.kind, certainty: n.certainty, source: sources.find((s) => s.id === n.sourceId)?.anonId ?? '', placedOn: n.targetId ? `${label(n.targetId)} (${n.targetId})` : n.category || 'not placed', text: n.text }));
+  const ids = new Set(notes.map((n) => n.id));
+  if (config.provider === 'fixture') return c.json({ method: 'fixture', changes: checkChanges(model, fixtureChanges(model, notes), ids) });
+  const key = config.userKeys ? c.req.header('x-claude-key')?.trim() : undefined;
+  if (config.provider !== 'anthropic' && !key) throw new HttpError(409, config.userKeys ? 'Add your Claude API key in Project settings to propose map changes.' : 'Claude is not set up on this server.');
+  try { return c.json({ method: 'claude', changes: checkChanges(model, await proposeMapChanges(model, input, { apiKey: key }), ids) }); }
+  catch (e) { throw new HttpError(502, e instanceof Error ? e.message : 'Claude could not propose changes.'); }
+});
+/** The test provider's proposals: predictable, built from the notes, and never presented as AI. */
+function fixtureChanges(m: Model, notes: Note[]): RawChange[] {
+  const blank = { ref: '', target: '', kind: '', label: '', role: '', scope: '', parent: '', from: '', to: '', edge_type: '', work_item: '', result: '', performer: '', description: '', active_minutes: null, wait_minutes: null, timing_basis: '', basis: [], why: 'Test proposal. No AI was used.' } as const;
+  const first = notes[0], out: RawChange[] = [];
+  const anchor = m.nodes.find((n) => n.kind === 'person') ?? m.nodes[0];
+  out.push({ ...blank, op: 'add_node', ref: 'new:1', kind: 'person', label: 'Applicant', role: 'Volunteer applicant', basis: [first.id] });
+  if (anchor) out.push({ ...blank, op: 'add_edge', ref: 'new:2', from: anchor.id, to: 'new:1', edge_type: 'info', label: 'Phone call before matching', performer: anchor.id, active_minutes: 10, timing_basis: 'reported', basis: [first.id] });
+  const timed = notes.find((n) => n.kind === 'measurement' && n.targetId && m.edges.some((e) => e.id === n.targetId));
+  if (timed) out.push({ ...blank, op: 'set_timing', target: timed.targetId!, active_minutes: 20, timing_basis: 'reported', basis: [timed.id] });
+  if (m.edges.length) out.push({ ...blank, op: 'remove', target: m.edges[m.edges.length - 1].id, basis: [first.id] });
+  return out;
+}
+// Adopting a draft: its map becomes the main map's next revision. The previous main map stays in history.
+api.post('/projects/:pid/branches/:bid/adopt', async (c) => {
+  await need(c, 'editor');
+  const b = await body(c, z.object({ force: z.boolean().default(false) }));
+  const revision = await tx(async (db) => {
+    const draft = await getBranch(db, pid(c), c.req.param('bid'));
+    if (draft.kind !== 'scenario') throw new HttpError(422, 'Only a draft or scenario can be adopted into the main map.');
+    const main = (await getBranches(db, pid(c))).find((x) => x.kind === 'baseline')!;
+    const base = draft.baseRevisionId ? await getRevision(db, pid(c), draft.baseRevisionId) : null;
+    if (!b.force && (!base || base.branchId !== main.id || base.id !== main.headRevisionId)) throw new HttpError(409, 'The main map has changed since this draft was made.', { changedSince: true });
+    const head = await getRevision(db, pid(c), draft.headRevisionId);
+    const rev = await saveModel(db, pid(c), main.id, c.get('user'), main.headRevisionId, head.model, `Adopted “${draft.name}”`.slice(0, 500));
+    await db.query('UPDATE branches SET layout = $3, layout_version = layout_version + 1 WHERE project_id = $1 AND id = $2', [pid(c), main.id, JSON.stringify(draft.layout)]);
+    await db.query(`UPDATE branches SET status = 'reviewed' WHERE project_id = $1 AND id = $2`, [pid(c), draft.id]);
+    await audit(db, pid(c), c.get('user'), 'scenario.adopt', 'branch', draft.id, { revisionId: rev.id, forced: b.force });
+    return rev;
+  });
+  return c.json({ revision });
+});
+
+const importedNote = z.object({
+  text: z.string().trim().min(1).max(8000), excerpt: z.string().max(8000).default(''),
+  kind: z.enum(IMPORT_KINDS), certainty: z.enum(CERTAINTIES).nullable(),
+  targetId: z.string().max(64).nullable(), sourceId: z.string().max(80).nullable(), category: z.string().max(100).default(''),
+  start: z.number().int().min(-1), end: z.number().int().min(-1),
+});
+api.post('/projects/:pid/fieldnotes', async (c) => {
+  await need(c, 'editor');
+  const b = await body(c, z.object({
+    name: z.string().trim().min(1).max(200), text: z.string().min(1).max(400_000), method: z.enum(['phone', 'claude', 'fixture']),
+    docType: z.enum(['notes', 'document']).default('notes'),
+    file: z.object({ name: z.string().max(300), mime: z.string().max(120).default(''), size: z.number().int().min(0).default(0), ref: z.string().max(2000).default(''), link: z.string().max(2000).default('') }).nullable().default(null),
+    branchId: z.string().max(64).optional(), sourceId: z.string().max(80).nullable().default(null),
+    // Sources to create, referred to from notes as "new:<key>".
+    newSources: z.array(z.object({ key: z.string().max(40), anonId: z.string().trim().min(1).max(200), type: z.string().max(40).default('interview'), participantRole: z.string().max(200).default('') })).max(50).default([]),
+    // An archive entry may hold no notes: a file kept for reference, with what it is about written in text.
+    notes: z.array(importedNote).max(1000),
+  }));
+  const { branch } = await modelFor(c, b.branchId);
+  const user = c.get('user');
+  const result = await tx(async (db) => {
+    const created = new Map<string, string>();
+    const sources = [];
+    for (const s of b.newSources) { const d = await upsertDoc(db, pid(c), user, 'sources', { anonId: s.anonId, type: s.type, participantRole: s.participantRole, date: new Date().toISOString().slice(0, 10) }); created.set(`new:${s.key}`, d.id); sources.push(d); }
+    const src = (id: string | null) => (id && id.startsWith('new:') ? created.get(id) ?? null : id);
+    const imp = await upsertDoc(db, pid(c), user, 'imports', { name: b.name, text: b.text, sourceId: src(b.sourceId), method: b.method, noteCount: b.notes.length, docType: b.docType, file: b.file });
+    const notes = [];
+    for (const n of b.notes) {
+      notes.push(await upsertDoc(db, pid(c), user, 'notes', {
+        text: n.text, rawText: n.excerpt || n.text, kind: n.kind, certainty: n.certainty, sourceId: src(n.sourceId), targetId: n.targetId,
+        anchorBranchId: n.targetId ? branch.id : null, group: b.name.slice(0, 200), category: n.category, origin: { importId: imp.id, start: n.start, end: n.end },
+      }));
+    }
+    await audit(db, pid(c), user, 'fieldnotes.import', 'imports', imp.id, { notes: notes.length, method: b.method, placed: notes.filter((n) => n.targetId).length });
+    return { import: imp, sources, notes };
+  });
+  return c.json(result);
 });
 
 // ---- evidence and decisions ------------------------------------------------------------------------

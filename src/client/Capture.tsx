@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
-import { canEdit, closeModal, createDoc, deleteDocById, fail, flush, getState, goToTarget, openModal, setNav, setSession, toast, updateDoc, useStore, type V } from './store';
+import { NoteContext } from './FieldImport';
+import { canEdit, closeModal, createDoc, deleteDocById, editInsightsUi, fail, flush, getState, goToTarget, openModal, setNav, setSession, toast, updateDoc, useStore, type V } from './store';
 import { Field, Modal } from './ui';
 import { anchorState, targetLabel } from '../shared/diff';
 import { NOTE_KINDS, RELATIONS, RELATION_LABEL, SOURCE_TYPES, type Episode, type Note } from '../shared/workspace';
@@ -139,6 +140,7 @@ export function SessionModal() {
 /** Click-through from a link to the record at its other end. */
 export function jumpTo(type: 'note' | 'insight', id: string) {
   const want = type === 'insight' ? 'insights' : 'notes';
+  if (type === 'insight') editInsightsUi({ expanded: id, scroll: -1 });
   if (getState().nav !== want) setNav(want);
   setTimeout(() => { const el = document.querySelector<HTMLElement>(`[data-${type}="${id}"]`); el?.scrollIntoView({ block: 'center' }); el?.classList.add('flash'); setTimeout(() => el?.classList.remove('flash'), 1600); }, 80);
 }
@@ -148,7 +150,7 @@ const KIND_COLOR: Record<string, string> = { observation: 'yellow', measurement:
 export function NoteCard({ note, showTarget = true }: { note: V<Note>; showTarget?: boolean }) {
   const model = useStore((s) => s.model)!, sources = useStore((s) => s.evidence.sources), links = useStore((s) => s.evidence.links), notes = useStore((s) => s.evidence.notes), insights = useStore((s) => s.evidence.insights);
   const branches = useStore((s) => s.branches), branchId = useStore((s) => s.branchId);
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(false), [ctx, setCtx] = useState(false);
   const src = sources.find((s) => s.id === note.sourceId);
   const state = anchorState(model, note.targetId);
   const mine = links.filter((l) => (l.fromType === 'note' && l.fromId === note.id) || (l.toType === 'note' && l.toId === note.id));
@@ -167,6 +169,7 @@ export function NoteCard({ note, showTarget = true }: { note: V<Note>; showTarge
         {note.excerptApproved && <span className="chip ok" title="Approved for agent use and quoting in exports">approved excerpt</span>}
       </header>
       <p className="sticky-text">{note.text}</p>
+      {note.origin && (ctx ? <NoteContext origin={note.origin} /> : null)}
       {ep && (
         <dl className="episode" data-testid="episode">
           <dt>Work episode</dt>
@@ -187,7 +190,7 @@ export function NoteCard({ note, showTarget = true }: { note: V<Note>; showTarge
             <button className="linkbtn" onClick={() => jumpTo(o.type, o.id)}>{o.type === 'insight' ? 'Insight: ' : ''}{o.label}</button></li>); })}
         </ul>
       )}
-      {canEdit() && <div className="sticky-actions"><button className="linkbtn" onClick={() => setOpen(true)} data-testid="note-edit">Edit</button><button className="linkbtn" onClick={() => openModal('link', { fromType: 'note', fromId: note.id })}>Link</button></div>}
+      {(canEdit() || note.origin) && <div className="sticky-actions">{note.origin && <button className="linkbtn" aria-expanded={ctx} onClick={() => setCtx(!ctx)} data-testid="note-context-toggle">{ctx ? 'Hide source text' : 'Source text'}</button>}{canEdit() && <><button className="linkbtn" onClick={() => setOpen(true)} data-testid="note-edit">Edit</button><button className="linkbtn" onClick={() => openModal('link', { fromType: 'note', fromId: note.id })}>Link</button></>}</div>}
       {open && <NoteEditor note={note} onClose={() => setOpen(false)} />}
     </article>
   );
@@ -211,7 +214,7 @@ function NoteEditor({ note, onClose }: { note: V<Note>; onClose: () => void }) {
       {note.rawText && note.rawText !== d.text && <p className="micro raw">As first captured: “{note.rawText}”</p>}
       <div className="row2">
         <Field label="Type"><select value={d.kind} onChange={(e) => setD({ ...d, kind: e.target.value as Note['kind'] })}>{NOTE_KINDS.map((k) => <option key={k}>{k}</option>)}</select></Field>
-        <Field label="How you know"><select value={d.certainty} onChange={(e) => setD({ ...d, certainty: e.target.value })}><option value="">Not recorded</option><option value="observed">Observed by the researcher</option><option value="reported">Reported by a participant</option><option value="inferred">Inferred</option></select></Field>
+        <Field label="How you know"><select value={d.certainty} onChange={(e) => setD({ ...d, certainty: e.target.value })}><option value="">Not recorded</option><option value="observed">Observed by the researcher</option><option value="reported">Reported by a participant</option><option value="documented">Written in a document</option><option value="inferred">Inferred (interpretation)</option></select></Field>
       </div>
       <div className="row2">
         <Field label="Source"><select value={d.sourceId} onChange={(e) => setD({ ...d, sourceId: e.target.value })}><option value="">No source yet</option>{sources.map((s) => <option key={s.id} value={s.id}>{s.anonId}</option>)}</select></Field>

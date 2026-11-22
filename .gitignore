@@ -1,7 +1,9 @@
 node_modules
 dist
 .env
+/.weave-codespace/
 test-results
 playwright-report
 backups/*.sql
 *.log
+android/build/
