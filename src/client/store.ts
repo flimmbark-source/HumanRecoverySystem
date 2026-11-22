@@ -289,7 +289,11 @@ export async function loadProject(pid: string) {
     viewBox = vs.view ?? null;
     setState({ project: p.project, role: p.role, members: p.members, branches: p.branches, provider: p.provider, nav: vs.nav ?? 'map', mode: vs.mode ?? 'structure', session: vs.session ?? null, routeId: vs.routeId ?? null });
     await Promise.all([loadBranch(bid, vs.selection ?? null, true), refreshEvidence()]);
-    setState({ importDraft: readImportDraft(pid) });
+    // The WebView writes storage to disk with a delay, so a review saved just before the app was closed can still be
+    // kept. One whose text is already in the archive was saved: drop it instead of offering the same notes again.
+    const kept = readImportDraft(pid);
+    if (kept?.step === 'review' && state.evidence.imports.some((im) => im.text === kept.text)) { importPending = true; writeImportDraft(); }
+    else setState({ importDraft: kept });
     setState({ loading: false });
   } catch (e) { setState({ loading: false, loadError: issuesText(e) }); }
 }
