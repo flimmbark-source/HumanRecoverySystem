@@ -476,7 +476,9 @@ export function editImport(patch: Partial<ImportDraft> | ((d: ImportDraft) => Pa
   setState((s) => (s.importDraft ? { importDraft: { ...s.importDraft, ...(typeof patch === 'function' ? patch(s.importDraft) : patch) } } : {}));
   keepImportDraft();
 }
-export function discardImport() { pendingFile = null; setState({ importDraft: null }); keepImportDraft(); }
+// Saved or discarded: forget the draft at once, so an app that is closed straight after cannot bring it back.
+function dropImportDraft() { importPending = true; writeImportDraft(); }
+export function discardImport() { pendingFile = null; setState({ importDraft: null }); dropImportDraft(); }
 /** A PDF or image waiting to be read by Claude. Held in memory only: originals are never stored. */
 export let pendingFile: { name: string; mime: string; data: string } | null = null;
 export const holdFile = (f: typeof pendingFile) => { pendingFile = f; };
@@ -515,7 +517,7 @@ export async function saveImport() {
   });
   pendingFile = null;
   setState((s) => ({ importDraft: null, evidence: { ...s.evidence, imports: [...s.evidence.imports, r.import], sources: [...s.evidence.sources, ...r.sources], notes: [...s.evidence.notes, ...r.notes] } }));
-  keepImportDraft();
+  dropImportDraft();
   return r;
 }
 
