@@ -12,6 +12,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.print.PrintManager;
 import android.util.Base64;
+import android.view.KeyEvent;
 import android.view.View;
 import android.view.WindowInsets;
 import android.webkit.JavascriptInterface;
@@ -87,6 +88,15 @@ public class MainActivity extends Activity {
     protected void onDestroy() {
         web.destroy();
         super.onDestroy();
+    }
+
+    // A WebView can keep the Back key while a text box has focus, so Back never reaches onBackPressed and an open
+    // dialog stays open. Take Back here first. An open keyboard still gets Back before the activity does.
+    @Override
+    public boolean dispatchKeyEvent(KeyEvent e) {
+        if (e.getKeyCode() != KeyEvent.KEYCODE_BACK) return super.dispatchKeyEvent(e);
+        if (e.getAction() == KeyEvent.ACTION_UP && !e.isCanceled()) onBackPressed();
+        return true;
     }
 
     @Override
