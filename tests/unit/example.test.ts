@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
 import { exampleBundle } from '../../src/server/example';
 import { checkCandidateRefs, parseCandidateBundle } from '../../src/shared/candidates';
 import { decisionHeading, evidenceForOpportunity } from '../../src/shared/evidence';
 import { compare, computeEffort, computeElapsed } from '../../src/shared/impact';
 import { placeLabels } from '../../src/shared/layout';
+import { parseImport } from '../../src/shared/legacy';
 
 // exampleBundle() validates the whole workspace and throws on any issue, so building it is the first check.
 const b = exampleBundle();
@@ -34,5 +36,12 @@ describe('the worked example', () => {
     const parsed = parseCandidateBundle({ format: 'weave-research-candidates', version: 2, candidates: b.candidates.map((c) => c.payload) });
     expect(parsed.issues).toEqual([]);
     expect(parsed.candidates.flatMap((c) => checkCandidateRefs(c, model('rev-2')))).toEqual([]);
+  });
+
+  it('is also in examples/ as a workspace file that imports, the same as the built-in example', () => {
+    const file = JSON.parse(readFileSync('examples/worked-example.weave.json', 'utf8'));
+    const r = parseImport(file);
+    expect([r.kind, r.issues]).toEqual(['native', []]);
+    expect({ ...r.bundle, exportedAt: '' }).toEqual({ ...b, exportedAt: '' });
   });
 });

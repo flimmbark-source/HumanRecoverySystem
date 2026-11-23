@@ -76,7 +76,7 @@ Open http://localhost:5173. The seed creates a synthetic project and four accoun
 | `reader@weave.test` | reader |
 | `outsider@weave.test` | none (for checking isolation) |
 
-To see every part of Weave with data in it, choose **New project → A worked example**. It makes a whole study of a referral workflow, from field notes to a recommendation, with invented data: a timed map with two routes, sources, notes and an archive, insights, four opportunities in different states, a scenario with its guardrails, a draft from notes to adopt, and research findings to review. The Android app has the same choice.
+To see every part of Weave with data in it, choose **New project → A worked example**. It makes a whole study of a referral workflow, from field notes to a recommendation, with invented data: a timed map with two routes, sources, notes and an archive, insights, four opportunities in different states, a scenario with its guardrails, a draft from notes to adopt, and research findings to review. The Android app has the same choice. The same project is also a file, [`examples/worked-example.weave.json`](examples/worked-example.weave.json): open it with **Projects → Import…** on a phone or a server.
 
 To run the production build locally instead:
 
